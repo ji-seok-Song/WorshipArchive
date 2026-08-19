@@ -5,23 +5,46 @@ import SwiftData
 actor PDFImportReservation {
     static let shared = PDFImportReservation()
 
-    private var checksums: Set<String> = []
+    private var ownersByChecksum: [String: UUID] = [:]
+    private var cancelledOwners: Set<UUID> = []
 
-    func reserve(_ checksum: String) -> Bool {
-        checksums.insert(checksum).inserted
+    func reserve(_ checksum: String, ownerID: UUID) -> Bool {
+        guard !cancelledOwners.contains(ownerID) else { return false }
+        if ownersByChecksum[checksum] == ownerID { return true }
+        guard ownersByChecksum[checksum] == nil else { return false }
+
+        ownersByChecksum[checksum] = ownerID
+        return true
     }
 
-    func release(_ checksum: String) {
-        checksums.remove(checksum)
+    func cancel(ownerID: UUID) {
+        cancelledOwners.insert(ownerID)
+        ownersByChecksum = ownersByChecksum.filter { $0.value != ownerID }
+    }
+
+    func release(_ checksum: String, ownerID: UUID) {
+        if ownersByChecksum[checksum] == ownerID {
+            ownersByChecksum.removeValue(forKey: checksum)
+        }
+    }
+
+    func finish(ownerID: UUID) {
+        cancelledOwners.remove(ownerID)
     }
 }
 
 @MainActor
 @Observable
 final class PDFImportCoordinator {
+    private struct PendingCandidate {
+        let operationID: UUID
+        let stagedPDF: StagedPDF
+    }
+
     enum Phase: Equatable {
         case selecting
         case staging
+        case analyzing
         case reviewing
         case saving
         case completed
@@ -29,28 +52,48 @@ final class PDFImportCoordinator {
 
     private(set) var phase: Phase = .selecting
     private(set) var stagedPDF: StagedPDF?
+    private(set) var analysisProgress: PDFAnalysisProgress?
+    private(set) var analysisResult: PDFAnalysisResult?
     var drafts: [SongDraft] = []
     var errorMessage: String?
 
     @ObservationIgnored
     private let fileStore: any PDFFileStoring
     @ObservationIgnored
+    private let pdfAnalyzer: any PDFAnalyzing
+    @ObservationIgnored
     private let importReservation: PDFImportReservation
     @ObservationIgnored
-    private var stagingOperationID: UUID?
+    private var operationID: UUID?
+    @ObservationIgnored
+    private var activeAnalysisTask: Task<PDFAnalysisResult, Error>?
     @ObservationIgnored
     private var reservedChecksum: String?
+    @ObservationIgnored
+    private var reservationOwnerID: UUID?
+    @ObservationIgnored
+    private var pendingCandidate: PendingCandidate?
 
     init(
         fileStore: any PDFFileStoring,
+        pdfAnalyzer: any PDFAnalyzing = LocalPDFAnalyzer(),
         importReservation: PDFImportReservation = .shared
     ) {
         self.fileStore = fileStore
+        self.pdfAnalyzer = pdfAnalyzer
         self.importReservation = importReservation
     }
 
     var canSave: Bool {
-        guard phase == .reviewing, let stagedPDF else { return false }
+        guard
+            phase == .reviewing,
+            let stagedPDF,
+            let analysisResult,
+            hasCompletePageAnalysis(analysisResult, pageCount: stagedPDF.pageCount)
+        else {
+            return false
+        }
+
         return (try? SongDraftValidator.validate(
             drafts,
             documentPageCount: stagedPDF.pageCount
@@ -58,7 +101,10 @@ final class PDFImportCoordinator {
     }
 
     var hasPendingImport: Bool {
-        stagedPDF != nil || phase == .staging || phase == .saving
+        stagedPDF != nil
+            || phase == .staging
+            || phase == .analyzing
+            || phase == .saving
     }
 
     var validationMessage: String? {
@@ -81,25 +127,52 @@ final class PDFImportCoordinator {
     ) async {
         guard phase != .saving else { return }
 
-        let operationID = UUID()
-        stagingOperationID = operationID
+        let supersededOperationID = operationID
+        let supersededCandidate = pendingCandidate
+        pendingCandidate = nil
+        activeAnalysisTask?.cancel()
+        activeAnalysisTask = nil
+
+        let currentOperationID = UUID()
+        operationID = currentOperationID
+        defer {
+            Task { [importReservation] in
+                await importReservation.finish(ownerID: currentOperationID)
+            }
+        }
 
         let previousStagedPDF = stagedPDF
         let previousDrafts = drafts
+        let previousAnalysisResult = analysisResult
         let previousChecksum = reservedChecksum
+        let previousReservationOwnerID = reservationOwnerID
         var candidatePDF: StagedPDF?
         var didReserveCandidate = false
 
         phase = .staging
+        analysisProgress = nil
+        errorMessage = nil
 
         do {
+            if let supersededOperationID {
+                await importReservation.cancel(ownerID: supersededOperationID)
+            }
+            if let supersededCandidate {
+                await fileStore.discard(supersededCandidate.stagedPDF)
+            }
+            guard operationID == currentOperationID else { return }
+
             let stagedPDF = try await fileStore.stagePDF(from: sourceURL)
             candidatePDF = stagedPDF
 
-            guard stagingOperationID == operationID else {
+            guard operationID == currentOperationID else {
                 await fileStore.discard(stagedPDF)
                 return
             }
+            pendingCandidate = PendingCandidate(
+                operationID: currentOperationID,
+                stagedPDF: stagedPDF
+            )
 
             let context = ModelContext(modelContainer)
             try ensureDocumentIsNotDuplicate(
@@ -108,51 +181,180 @@ final class PDFImportCoordinator {
             )
 
             if stagedPDF.checksum != previousChecksum {
-                guard await importReservation.reserve(stagedPDF.checksum) else {
+                let didReserve = await importReservation.reserve(
+                    stagedPDF.checksum,
+                    ownerID: currentOperationID
+                )
+                guard operationID == currentOperationID else {
+                    if didReserve {
+                        await importReservation.release(
+                            stagedPDF.checksum,
+                            ownerID: currentOperationID
+                        )
+                    }
+                    await fileStore.discard(stagedPDF)
+                    return
+                }
+                guard didReserve else {
                     throw PDFImportValidationError.duplicateImportInProgress
                 }
                 didReserveCandidate = true
             }
 
-            guard stagingOperationID == operationID else {
-                if didReserveCandidate {
-                    await importReservation.release(stagedPDF.checksum)
-                }
-                await fileStore.discard(stagedPDF)
+            guard operationID == currentOperationID else {
+                await discardCandidate(
+                    stagedPDF,
+                    releasingReservation: didReserveCandidate,
+                    ownerID: currentOperationID
+                )
                 return
+            }
+
+            let stagedURL = try await fileStore.stagedFileURL(for: stagedPDF)
+            guard operationID == currentOperationID else {
+                await discardCandidate(
+                    stagedPDF,
+                    releasingReservation: didReserveCandidate,
+                    ownerID: currentOperationID
+                )
+                return
+            }
+
+            phase = .analyzing
+            analysisProgress = PDFAnalysisProgress(
+                stage: .extractingEmbeddedText,
+                completedPageCount: 0,
+                totalPageCount: stagedPDF.pageCount
+            )
+
+            let analysisTask = makeAnalysisTask(
+                stagedPDF: stagedPDF,
+                stagedURL: stagedURL,
+                operationID: currentOperationID
+            )
+            activeAnalysisTask = analysisTask
+            let result = try await analysisTask.value
+
+            guard operationID == currentOperationID else {
+                await discardCandidate(
+                    stagedPDF,
+                    releasingReservation: didReserveCandidate,
+                    ownerID: currentOperationID
+                )
+                return
+            }
+            guard hasCompletePageAnalysis(result, pageCount: stagedPDF.pageCount) else {
+                throw PDFImportValidationError.incompleteAnalysis
             }
 
             self.stagedPDF = stagedPDF
             reservedChecksum = stagedPDF.checksum
-            drafts = [
-                SongDraft(
-                    title: sourceURL.deletingPathExtension().lastPathComponent,
-                    startPageNumber: 1,
-                    endPageNumber: stagedPDF.pageCount
-                )
-            ]
-            stagingOperationID = nil
+            reservationOwnerID = didReserveCandidate
+                ? currentOperationID
+                : previousReservationOwnerID
+            pendingCandidate = nil
+            analysisResult = result
+            drafts = result.suggestions.map(songDraft(from:))
+            activeAnalysisTask = nil
+            analysisProgress = nil
+            operationID = nil
             phase = .reviewing
 
             if let previousStagedPDF {
                 await fileStore.discard(previousStagedPDF)
             }
-            if let previousChecksum, previousChecksum != stagedPDF.checksum {
-                await importReservation.release(previousChecksum)
+            if
+                let previousChecksum,
+                let previousReservationOwnerID,
+                previousChecksum != stagedPDF.checksum
+            {
+                await importReservation.release(
+                    previousChecksum,
+                    ownerID: previousReservationOwnerID
+                )
             }
         } catch {
             if let candidatePDF {
-                await fileStore.discard(candidatePDF)
+                await discardCandidate(
+                    candidatePDF,
+                    releasingReservation: didReserveCandidate,
+                    ownerID: currentOperationID
+                )
             }
 
-            guard stagingOperationID == operationID else { return }
+            guard operationID == currentOperationID else { return }
 
+            pendingCandidate = nil
             self.stagedPDF = previousStagedPDF
             drafts = previousDrafts
+            analysisResult = previousAnalysisResult
+            analysisProgress = nil
+            activeAnalysisTask = nil
             reservedChecksum = previousChecksum
-            stagingOperationID = nil
+            reservationOwnerID = previousReservationOwnerID
+            operationID = nil
             phase = previousStagedPDF == nil ? .selecting : .reviewing
-            errorMessage = error.localizedDescription
+            if !(error is CancellationError) {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func retryAnalysis() async {
+        guard phase == .reviewing, let stagedPDF else { return }
+
+        let previousDrafts = drafts
+        let previousAnalysisResult = analysisResult
+        let currentOperationID = UUID()
+        operationID = currentOperationID
+        defer {
+            Task { [importReservation] in
+                await importReservation.finish(ownerID: currentOperationID)
+            }
+        }
+        phase = .analyzing
+        errorMessage = nil
+        analysisProgress = PDFAnalysisProgress(
+            stage: .extractingEmbeddedText,
+            completedPageCount: 0,
+            totalPageCount: stagedPDF.pageCount
+        )
+
+        do {
+            let stagedURL = try await fileStore.stagedFileURL(for: stagedPDF)
+            guard operationID == currentOperationID else { return }
+
+            let analysisTask = makeAnalysisTask(
+                stagedPDF: stagedPDF,
+                stagedURL: stagedURL,
+                operationID: currentOperationID
+            )
+            activeAnalysisTask = analysisTask
+            let result = try await analysisTask.value
+
+            guard operationID == currentOperationID else { return }
+            guard hasCompletePageAnalysis(result, pageCount: stagedPDF.pageCount) else {
+                throw PDFImportValidationError.incompleteAnalysis
+            }
+
+            analysisResult = result
+            drafts = result.suggestions.map(songDraft(from:))
+            activeAnalysisTask = nil
+            analysisProgress = nil
+            operationID = nil
+            phase = .reviewing
+        } catch {
+            guard operationID == currentOperationID else { return }
+
+            drafts = previousDrafts
+            analysisResult = previousAnalysisResult
+            activeAnalysisTask = nil
+            analysisProgress = nil
+            operationID = nil
+            phase = .reviewing
+            if !(error is CancellationError) {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
@@ -160,13 +362,11 @@ final class PDFImportCoordinator {
         guard let stagedPDF else { return }
 
         if let unusedPage = firstUnusedPage(upTo: stagedPDF.pageCount) {
-            drafts.append(
-                SongDraft(
-                    title: "새 찬양 \(drafts.count + 1)",
-                    startPageNumber: unusedPage,
-                    endPageNumber: unusedPage
-                )
-            )
+            drafts.append(SongDraft(
+                title: "새 찬양 \(drafts.count + 1)",
+                startPageNumber: unusedPage,
+                endPageNumber: unusedPage
+            ))
             return
         }
 
@@ -188,13 +388,11 @@ final class PDFImportCoordinator {
             return
         }
 
-        drafts.append(
-            SongDraft(
-                title: "새 찬양 \(drafts.count + 1)",
-                startPageNumber: stagedPDF.pageCount,
-                endPageNumber: stagedPDF.pageCount
-            )
-        )
+        drafts.append(SongDraft(
+            title: "새 찬양 \(drafts.count + 1)",
+            startPageNumber: stagedPDF.pageCount,
+            endPageNumber: stagedPDF.pageCount
+        ))
     }
 
     func removeSongDraft(id: UUID) {
@@ -216,6 +414,13 @@ final class PDFImportCoordinator {
         guard phase == .reviewing else { return false }
         guard let stagedPDF else {
             errorMessage = PDFImportValidationError.missingStagedPDF.localizedDescription
+            return false
+        }
+        guard
+            let analysisResult,
+            hasCompletePageAnalysis(analysisResult, pageCount: stagedPDF.pageCount)
+        else {
+            errorMessage = PDFImportValidationError.incompleteAnalysis.localizedDescription
             return false
         }
 
@@ -249,16 +454,40 @@ final class PDFImportCoordinator {
                 pageCount: storedPDF.pageCount,
                 fileSize: storedPDF.fileSize,
                 checksum: storedPDF.checksum,
-                analysisStatus: .pending
+                analysisStatus: .completed
             )
+            if analysisResult.failedPageCount > 0 {
+                document.analysisErrorMessage = "\(analysisResult.failedPageCount)개 페이지는 글자 인식을 확인해 주세요."
+            }
             context.insert(document)
 
+            for page in analysisResult.pages {
+                let pageAnalysis = try PageAnalysis.create(
+                    pageIndex: page.pageIndex,
+                    extractedText: page.text,
+                    confidence: page.confidence,
+                    status: page.status,
+                    recognitionMethod: page.recognitionMethod,
+                    document: document
+                )
+                pageAnalysis.errorMessage = page.errorMessage
+                context.insert(pageAnalysis)
+            }
+
+            let pagesByIndex = Dictionary(
+                uniqueKeysWithValues: analysisResult.pages.map { ($0.pageIndex, $0) }
+            )
             for draft in validatedDrafts {
-                let song = Song(title: draft.title)
+                let recognizedText = (draft.pageRange.startPageIndex...draft.pageRange.endPageIndex)
+                    .compactMap { pagesByIndex[$0]?.text }
+                    .filter { !$0.isEmpty }
+                    .joined(separator: "\n\n")
+                let song = Song(title: draft.title, lyricsText: recognizedText)
                 let sheet = try SongSheet.create(
                     startPageIndex: draft.pageRange.startPageIndex,
                     endPageIndex: draft.pageRange.endPageIndex,
                     musicalKey: draft.musicalKey,
+                    recognizedText: recognizedText,
                     document: document,
                     song: song
                 )
@@ -271,6 +500,8 @@ final class PDFImportCoordinator {
             await releaseReservation()
             self.stagedPDF = nil
             drafts = []
+            self.analysisResult = nil
+            analysisProgress = nil
             phase = .completed
             return true
         } catch {
@@ -300,24 +531,97 @@ final class PDFImportCoordinator {
     func cancel() async {
         guard phase != .saving else { return }
 
-        stagingOperationID = nil
+        let cancelledOperationID = operationID
+        let pendingCandidate = self.pendingCandidate
+        operationID = nil
+        self.pendingCandidate = nil
+        activeAnalysisTask?.cancel()
+        activeAnalysisTask = nil
+
         let stagedPDF = self.stagedPDF
         let reservedChecksum = self.reservedChecksum
+        let reservationOwnerID = self.reservationOwnerID
         self.stagedPDF = nil
         self.reservedChecksum = nil
+        self.reservationOwnerID = nil
         drafts = []
+        analysisResult = nil
+        analysisProgress = nil
         phase = .selecting
 
+        if let cancelledOperationID {
+            await importReservation.cancel(ownerID: cancelledOperationID)
+        }
+        if let pendingCandidate {
+            await fileStore.discard(pendingCandidate.stagedPDF)
+        }
         if let stagedPDF {
             await fileStore.discard(stagedPDF)
         }
-        if let reservedChecksum {
-            await importReservation.release(reservedChecksum)
+        if let reservedChecksum, let reservationOwnerID {
+            await importReservation.release(
+                reservedChecksum,
+                ownerID: reservationOwnerID
+            )
         }
     }
 
     func clearError() {
         errorMessage = nil
+    }
+
+    private func makeAnalysisTask(
+        stagedPDF: StagedPDF,
+        stagedURL: URL,
+        operationID: UUID
+    ) -> Task<PDFAnalysisResult, Error> {
+        Task { [pdfAnalyzer] in
+            try await pdfAnalyzer.analyze(
+                pdfAt: stagedURL,
+                originalFileName: stagedPDF.originalFileName,
+                expectedPageCount: stagedPDF.pageCount
+            ) { [weak self] progress in
+                await self?.apply(progress: progress, operationID: operationID)
+            }
+        }
+    }
+
+    private func apply(
+        progress: PDFAnalysisProgress,
+        operationID: UUID
+    ) {
+        guard self.operationID == operationID, phase == .analyzing else { return }
+        analysisProgress = progress
+    }
+
+    private func songDraft(from suggestion: SongDraftSuggestion) -> SongDraft {
+        SongDraft(
+            title: suggestion.title,
+            startPageNumber: suggestion.startPageNumber,
+            endPageNumber: suggestion.endPageNumber,
+            suggestionConfidence: suggestion.confidence
+        )
+    }
+
+    private func discardCandidate(
+        _ stagedPDF: StagedPDF,
+        releasingReservation: Bool,
+        ownerID: UUID? = nil
+    ) async {
+        if releasingReservation, let ownerID {
+            await importReservation.release(
+                stagedPDF.checksum,
+                ownerID: ownerID
+            )
+        }
+        await fileStore.discard(stagedPDF)
+    }
+
+    private func hasCompletePageAnalysis(
+        _ result: PDFAnalysisResult,
+        pageCount: Int
+    ) -> Bool {
+        result.pages.map(\.pageIndex).sorted() == Array(0..<pageCount)
     }
 
     private func longestSplittableDraftIndex(
@@ -347,9 +651,13 @@ final class PDFImportCoordinator {
     }
 
     private func releaseReservation() async {
-        guard let reservedChecksum else { return }
+        guard let reservedChecksum, let reservationOwnerID else { return }
         self.reservedChecksum = nil
-        await importReservation.release(reservedChecksum)
+        self.reservationOwnerID = nil
+        await importReservation.release(
+            reservedChecksum,
+            ownerID: reservationOwnerID
+        )
     }
 
     private func ensureDocumentIsNotDuplicate(

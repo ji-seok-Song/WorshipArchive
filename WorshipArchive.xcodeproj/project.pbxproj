@@ -6,8 +6,19 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXContainerItemProxy section */
+		7B0544B6303575B400AC0BB6 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 7B054492303575B300AC0BB6 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 7B054499303575B300AC0BB6;
+			remoteInfo = WorshipArchive;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		7B05449A303575B300AC0BB6 /* WorshipArchive.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WorshipArchive.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		7B0544B0303575B400AC0BB6 /* WorshipArchiveTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WorshipArchiveTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -16,10 +27,22 @@
 			path = WorshipArchive;
 			sourceTree = "<group>";
 		};
+		7B0544B1303575B400AC0BB6 /* WorshipArchiveTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = WorshipArchiveTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		7B054497303575B300AC0BB6 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7B0544B2303575B400AC0BB6 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -33,6 +56,7 @@
 			isa = PBXGroup;
 			children = (
 				7B05449C303575B300AC0BB6 /* WorshipArchive */,
+				7B0544B1303575B400AC0BB6 /* WorshipArchiveTests */,
 				7B05449B303575B300AC0BB6 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -41,6 +65,7 @@
 			isa = PBXGroup;
 			children = (
 				7B05449A303575B300AC0BB6 /* WorshipArchive.app */,
+				7B0544B0303575B400AC0BB6 /* WorshipArchiveTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -70,6 +95,29 @@
 			productReference = 7B05449A303575B300AC0BB6 /* WorshipArchive.app */;
 			productType = "com.apple.product-type.application";
 		};
+		7B0544B5303575B400AC0BB6 /* WorshipArchiveTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7B0544BA303575B400AC0BB6 /* Build configuration list for PBXNativeTarget "WorshipArchiveTests" */;
+			buildPhases = (
+				7B0544B3303575B400AC0BB6 /* Sources */,
+				7B0544B2303575B400AC0BB6 /* Frameworks */,
+				7B0544B4303575B400AC0BB6 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				7B0544B7303575B400AC0BB6 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				7B0544B1303575B400AC0BB6 /* WorshipArchiveTests */,
+			);
+			name = WorshipArchiveTests;
+			packageProductDependencies = (
+			);
+			productName = WorshipArchiveTests;
+			productReference = 7B0544B0303575B400AC0BB6 /* WorshipArchiveTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -82,6 +130,10 @@
 				TargetAttributes = {
 					7B054499303575B300AC0BB6 = {
 						CreatedOnToolsVersion = 26.5;
+					};
+					7B0544B5303575B400AC0BB6 = {
+						CreatedOnToolsVersion = 26.5;
+						TestTargetID = 7B054499303575B300AC0BB6;
 					};
 				};
 			};
@@ -100,12 +152,20 @@
 			projectRoot = "";
 			targets = (
 				7B054499303575B300AC0BB6 /* WorshipArchive */,
+				7B0544B5303575B400AC0BB6 /* WorshipArchiveTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		7B054498303575B300AC0BB6 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7B0544B4303575B400AC0BB6 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -122,7 +182,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		7B0544B3303575B400AC0BB6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		7B0544B7303575B400AC0BB6 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 7B054499303575B300AC0BB6 /* WorshipArchive */;
+			targetProxy = 7B0544B6303575B400AC0BB6 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		7B0544A3303575B400AC0BB6 /* Debug */ = {
@@ -312,6 +387,62 @@
 			};
 			name = Release;
 		};
+		7B0544B8303575B400AC0BB6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = PUYYNH4TJ6;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jacky.WorshipArchiveTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/WorshipArchive.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/WorshipArchive";
+			};
+			name = Debug;
+		};
+		7B0544B9303575B400AC0BB6 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = PUYYNH4TJ6;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jacky.WorshipArchiveTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/WorshipArchive.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/WorshipArchive";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -329,6 +460,15 @@
 			buildConfigurations = (
 				7B0544A6303575B400AC0BB6 /* Debug */,
 				7B0544A7303575B400AC0BB6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		7B0544BA303575B400AC0BB6 /* Build configuration list for PBXNativeTarget "WorshipArchiveTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7B0544B8303575B400AC0BB6 /* Debug */,
+				7B0544B9303575B400AC0BB6 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

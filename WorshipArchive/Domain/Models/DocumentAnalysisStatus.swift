@@ -1,6 +1,6 @@
 import Foundation
 
-enum DocumentAnalysisStatus: String, Codable, CaseIterable {
+enum DocumentAnalysisStatus: String, Codable, CaseIterable, Sendable {
     case pending
     case extractingText
     case recognizingText
@@ -9,7 +9,7 @@ enum DocumentAnalysisStatus: String, Codable, CaseIterable {
     case failed
 }
 
-enum PageAnalysisStatus: String, Codable {
+enum PageAnalysisStatus: String, Codable, Sendable {
     case pending
     case textExtracted
     case recognitionRequired
@@ -17,7 +17,7 @@ enum PageAnalysisStatus: String, Codable {
     case failed
 }
 
-enum TextRecognitionMethod: String, Codable {
+enum TextRecognitionMethod: String, Codable, Sendable {
     case none
     case embeddedText
     case vision

@@ -6,19 +6,22 @@ struct SongDraft: Identifiable, Equatable, Sendable {
     var musicalKey: MusicalKey?
     var startPageNumber: Int
     var endPageNumber: Int
+    var suggestionConfidence: Double?
 
     init(
         id: UUID = UUID(),
         title: String,
         musicalKey: MusicalKey? = nil,
         startPageNumber: Int,
-        endPageNumber: Int
+        endPageNumber: Int,
+        suggestionConfidence: Double? = nil
     ) {
         self.id = id
         self.title = title
         self.musicalKey = musicalKey
         self.startPageNumber = startPageNumber
         self.endPageNumber = endPageNumber
+        self.suggestionConfidence = suggestionConfidence
     }
 }
 
@@ -93,6 +96,7 @@ enum PDFImportValidationError: LocalizedError, Equatable {
     case duplicateDocument(String)
     case duplicateImportInProgress
     case missingStagedPDF
+    case incompleteAnalysis
 
     var errorDescription: String? {
         switch self {
@@ -108,6 +112,8 @@ enum PDFImportValidationError: LocalizedError, Equatable {
             "같은 내용의 PDF를 다른 창에서 가져오는 중입니다."
         case .missingStagedPDF:
             "저장할 PDF를 찾을 수 없습니다. 다시 선택해 주세요."
+        case .incompleteAnalysis:
+            "페이지 분석 결과가 완전하지 않습니다. 다시 분석해 주세요."
         }
     }
 }

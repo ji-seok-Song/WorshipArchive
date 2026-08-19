@@ -10,10 +10,17 @@ struct PDFImportView: View {
     @State private var isFileImporterPresented = false
     @State private var previewDocument: PDFPreviewDocument?
     @State private var isDiscardConfirmationPresented = false
+    @State private var isReanalysisConfirmationPresented = false
 
-    init(fileStore: any PDFFileStoring) {
+    init(
+        fileStore: any PDFFileStoring,
+        pdfAnalyzer: any PDFAnalyzing = LocalPDFAnalyzer()
+    ) {
         _coordinator = State(
-            initialValue: PDFImportCoordinator(fileStore: fileStore)
+            initialValue: PDFImportCoordinator(
+                fileStore: fileStore,
+                pdfAnalyzer: pdfAnalyzer
+            )
         )
     }
 
@@ -28,6 +35,8 @@ struct PDFImportView: View {
                         title: "PDF를 안전하게 복사하는 중",
                         message: "파일을 닫지 않아도 되도록 앱 보관함에 준비하고 있어요."
                     )
+                case .analyzing:
+                    analysisProgressContent
                 case .reviewing:
                     PDFImportReviewForm(
                         coordinator: coordinator,
@@ -36,6 +45,9 @@ struct PDFImportView: View {
                         },
                         selectAnotherPDF: {
                             isFileImporterPresented = true
+                        },
+                        retryAnalysis: {
+                            isReanalysisConfirmationPresented = true
                         }
                     )
                 case .saving:
@@ -54,7 +66,7 @@ struct PDFImportView: View {
                     Button("취소") {
                         requestCancellation()
                     }
-                    .disabled(isBusy)
+                    .disabled(coordinator.phase == .saving)
                 }
 
                 if coordinator.phase == .reviewing {
@@ -76,7 +88,7 @@ struct PDFImportView: View {
         .sheet(item: $previewDocument) { document in
             PDFPreviewView(url: document.url)
         }
-        .interactiveDismissDisabled(isBusy || coordinator.hasPendingImport)
+        .interactiveDismissDisabled(coordinator.hasPendingImport)
         .confirmationDialog(
             "가져오기를 취소할까요?",
             isPresented: $isDiscardConfirmationPresented,
@@ -88,6 +100,18 @@ struct PDFImportView: View {
             Button("계속 편집", role: .cancel) {}
         } message: {
             Text("아직 저장하지 않은 곡 제목, 키, 페이지 범위가 사라집니다.")
+        }
+        .confirmationDialog(
+            "자동 분석을 다시 할까요?",
+            isPresented: $isReanalysisConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("자동 제안으로 다시 만들기", role: .destructive) {
+                retryAnalysis()
+            }
+            Button("현재 편집 유지", role: .cancel) {}
+        } message: {
+            Text("직접 수정한 곡 제목, 키, 페이지 범위가 새 자동 제안으로 바뀝니다.")
         }
         .alert(
             "PDF를 처리할 수 없어요",
@@ -126,8 +150,28 @@ struct PDFImportView: View {
         }
     }
 
-    private var isBusy: Bool {
-        coordinator.phase == .staging || coordinator.phase == .saving
+    private var analysisProgressContent: some View {
+        let progress = coordinator.analysisProgress
+        let title: String
+        switch progress?.stage {
+        case .extractingEmbeddedText:
+            title = "PDF 글자 확인 중"
+        case .recognizingText:
+            title = "스캔 페이지 글자 인식 중"
+        case .suggestingSongs:
+            title = "곡 시작 페이지 찾는 중"
+        case nil:
+            title = "PDF 분석 준비 중"
+        }
+
+        let message: String
+        if let progress, progress.totalPageCount > 0 {
+            message = "\(progress.completedPageCount) / \(progress.totalPageCount)"
+        } else {
+            message = "페이지를 차례로 확인하고 있어요."
+        }
+
+        return progressContent(title: title, message: message)
     }
 
     private func progressContent(title: String, message: String) -> some View {
@@ -197,12 +241,19 @@ struct PDFImportView: View {
             previewDocument = PDFPreviewDocument(url: url)
         }
     }
+
+    private func retryAnalysis() {
+        Task {
+            await coordinator.retryAnalysis()
+        }
+    }
 }
 
 private struct PDFImportReviewForm: View {
     @Bindable var coordinator: PDFImportCoordinator
     let previewPDF: () -> Void
     let selectAnotherPDF: () -> Void
+    let retryAnalysis: () -> Void
 
     var body: some View {
         Form {
@@ -229,8 +280,34 @@ private struct PDFImportReviewForm: View {
                     }
                 }
 
+                Section("자동 분석") {
+                    LabeledContent("찾은 곡", value: "\(coordinator.drafts.count)곡")
+
+                    if let failedPageCount = coordinator.analysisResult?.failedPageCount,
+                       failedPageCount > 0 {
+                        Label(
+                            "\(failedPageCount)개 페이지는 글자 인식을 확인해 주세요.",
+                            systemImage: "exclamationmark.triangle"
+                        )
+                        .foregroundStyle(.orange)
+                    }
+
+                    Button("다시 분석", action: retryAnalysis)
+                }
+
                 ForEach($coordinator.drafts) { $draft in
                     Section {
+                        if let confidence = draft.suggestionConfidence {
+                            Label(
+                                confidence < 0.75 ? "확인 필요" : "자동으로 찾은 곡",
+                                systemImage: confidence < 0.75
+                                    ? "questionmark.circle"
+                                    : "sparkles"
+                            )
+                            .font(.subheadline)
+                            .foregroundStyle(confidence < 0.75 ? .orange : .secondary)
+                        }
+
                         TextField("곡 제목", text: $draft.title)
 
                         Picker("대표 키", selection: $draft.musicalKey) {

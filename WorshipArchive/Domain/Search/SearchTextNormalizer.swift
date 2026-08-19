@@ -1,6 +1,6 @@
 import Foundation
 
-enum SearchTextNormalizer {
+nonisolated enum SearchTextNormalizer {
     static func normalize(_ text: String) -> String {
         text
             .precomposedStringWithCanonicalMapping

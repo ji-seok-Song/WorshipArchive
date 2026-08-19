@@ -21,13 +21,16 @@ struct ContentView: View {
     @State private var didPerformFileMaintenance = false
 
     private let fileStore: any PDFFileStoring
+    private let pdfAnalyzer: any PDFAnalyzing
     private let performsFileMaintenance: Bool
 
     init(
         fileStore: any PDFFileStoring = LocalPDFFileStore.live(),
+        pdfAnalyzer: any PDFAnalyzing = LocalPDFAnalyzer(),
         performsFileMaintenance: Bool = true
     ) {
         self.fileStore = fileStore
+        self.pdfAnalyzer = pdfAnalyzer
         self.performsFileMaintenance = performsFileMaintenance
     }
 
@@ -76,7 +79,10 @@ struct ContentView: View {
         }
         .tabViewStyle(.sidebarAdaptable)
         .sheet(isPresented: $isPDFImportPresented) {
-            PDFImportView(fileStore: fileStore)
+            PDFImportView(
+                fileStore: fileStore,
+                pdfAnalyzer: pdfAnalyzer
+            )
         }
         .task {
             await performFileMaintenanceIfNeeded()
