@@ -2,6 +2,7 @@ import SwiftUI
 
 struct HomeView: View {
     let navigate: (AppDestination) -> Void
+    let addPDF: () -> Void
 
     private let columns = [
         GridItem(.flexible(), spacing: 12),
@@ -75,9 +76,14 @@ struct HomeView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            Label("첫 PDF를 추가하면 곡별 정리가 시작돼요", systemImage: "doc.badge.plus")
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.white.opacity(0.9))
+            Button(action: addPDF) {
+                Label("PDF 추가", systemImage: "doc.badge.plus")
+                    .font(.subheadline.weight(.semibold))
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.white)
+            .foregroundStyle(ArchiveTheme.tint)
+            .accessibilityHint("파일 앱에서 찬양 악보 PDF를 선택합니다")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(24)
@@ -95,6 +101,6 @@ struct HomeView: View {
 
 #Preview {
     NavigationStack {
-        HomeView(navigate: { _ in })
+        HomeView(navigate: { _ in }, addPDF: {})
     }
 }

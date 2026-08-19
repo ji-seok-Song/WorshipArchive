@@ -2,6 +2,7 @@ import Foundation
 
 protocol PDFFileStoring: Sendable {
     func stagePDF(from sourceURL: URL) async throws -> StagedPDF
+    func stagedFileURL(for stagedPDF: StagedPDF) async throws -> URL
     func commit(_ stagedPDF: StagedPDF) async throws -> StoredPDF
     func discard(_ stagedPDF: StagedPDF) async
     func storedFileURL(

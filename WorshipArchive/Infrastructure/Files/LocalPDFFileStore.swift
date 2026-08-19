@@ -20,15 +20,8 @@ actor LocalPDFFileStore: PDFFileStoring {
         self.rootDirectory = rootDirectory
     }
 
-    static func live() throws -> LocalPDFFileStore {
-        let fileManager = FileManager.default
-        let applicationSupport = try fileManager.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )
-        let rootDirectory = applicationSupport
+    static func live() -> LocalPDFFileStore {
+        let rootDirectory = URL.applicationSupportDirectory
             .appending(path: "WorshipArchive", directoryHint: .isDirectory)
 
         return LocalPDFFileStore(rootDirectory: rootDirectory)
@@ -98,18 +91,49 @@ actor LocalPDFFileStore: PDFFileStoring {
         let storedFileName = "\(stagedPDF.id.uuidString.lowercased()).pdf"
         let destinationURL = documentsDirectory.appending(path: storedFileName)
 
-        guard !fileManager.fileExists(atPath: destinationURL.path) else {
-            throw PDFFileStoreError.storedFileCollision
+        if fileManager.fileExists(atPath: destinationURL.path) {
+            return try existingStoredPDF(
+                at: destinationURL,
+                stagedPDF: stagedPDF
+            )
         }
 
         try updateModificationDate(of: stagingURL)
-        try fileManager.moveItem(at: stagingURL, to: destinationURL)
-        return StoredPDF(
-            storedFileName: storedFileName,
-            checksum: stagedPDF.checksum,
-            fileSize: stagedPDF.fileSize,
-            pageCount: stagedPDF.pageCount
+        let temporaryURL = stagingDirectory.appending(
+            path: "\(UUID().uuidString.lowercased()).commit-partial"
         )
+
+        do {
+            try fileManager.copyItem(at: stagingURL, to: temporaryURL)
+            try updateModificationDate(of: temporaryURL)
+            try fileManager.moveItem(at: temporaryURL, to: destinationURL)
+            return storedPDF(from: stagedPDF)
+        } catch {
+            try? fileManager.removeItem(at: temporaryURL)
+
+            if fileManager.fileExists(atPath: destinationURL.path) {
+                return try existingStoredPDF(
+                    at: destinationURL,
+                    stagedPDF: stagedPDF
+                )
+            }
+            throw error
+        }
+    }
+
+    func stagedFileURL(for stagedPDF: StagedPDF) async throws -> URL {
+        guard isValidStagingFileName(stagedPDF.stagingFileName) else {
+            throw PDFFileStoreError.invalidStagedFileName
+        }
+
+        let fileURL = stagingDirectory.appending(path: stagedPDF.stagingFileName)
+        guard try isRegularFile(at: fileURL) else {
+            throw PDFFileStoreError.stagedFileMissing
+        }
+        guard try sha256(of: fileURL) == stagedPDF.checksum else {
+            throw PDFFileStoreError.stagedFileChanged
+        }
+        return fileURL
     }
 
     func discard(_ stagedPDF: StagedPDF) async {
@@ -227,6 +251,28 @@ actor LocalPDFFileStore: PDFFileStoring {
         try fileManager.setAttributes(
             [.modificationDate: Date()],
             ofItemAtPath: fileURL.path
+        )
+    }
+
+    private func existingStoredPDF(
+        at fileURL: URL,
+        stagedPDF: StagedPDF
+    ) throws -> StoredPDF {
+        guard try isRegularFile(at: fileURL) else {
+            throw PDFFileStoreError.storedFileCollision
+        }
+        guard try sha256(of: fileURL) == stagedPDF.checksum else {
+            throw PDFFileStoreError.storedFileCollision
+        }
+        return storedPDF(from: stagedPDF)
+    }
+
+    private func storedPDF(from stagedPDF: StagedPDF) -> StoredPDF {
+        StoredPDF(
+            storedFileName: "\(stagedPDF.id.uuidString.lowercased()).pdf",
+            checksum: stagedPDF.checksum,
+            fileSize: stagedPDF.fileSize,
+            pageCount: stagedPDF.pageCount
         )
     }
 

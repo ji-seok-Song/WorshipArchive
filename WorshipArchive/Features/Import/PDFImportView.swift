@@ -1,0 +1,323 @@
+import SwiftData
+import SwiftUI
+import UniformTypeIdentifiers
+
+struct PDFImportView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
+
+    @State private var coordinator: PDFImportCoordinator
+    @State private var isFileImporterPresented = false
+    @State private var previewDocument: PDFPreviewDocument?
+    @State private var isDiscardConfirmationPresented = false
+
+    init(fileStore: any PDFFileStoring) {
+        _coordinator = State(
+            initialValue: PDFImportCoordinator(fileStore: fileStore)
+        )
+    }
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                switch coordinator.phase {
+                case .selecting:
+                    selectionContent
+                case .staging:
+                    progressContent(
+                        title: "PDF를 안전하게 복사하는 중",
+                        message: "파일을 닫지 않아도 되도록 앱 보관함에 준비하고 있어요."
+                    )
+                case .reviewing:
+                    PDFImportReviewForm(
+                        coordinator: coordinator,
+                        previewPDF: {
+                            showPreview()
+                        },
+                        selectAnotherPDF: {
+                            isFileImporterPresented = true
+                        }
+                    )
+                case .saving:
+                    progressContent(
+                        title: "악보를 보관하는 중",
+                        message: "원본 PDF와 곡 정보를 함께 저장하고 있어요."
+                    )
+                case .completed:
+                    Color.clear
+                }
+            }
+            .navigationTitle("PDF 추가")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("취소") {
+                        requestCancellation()
+                    }
+                    .disabled(isBusy)
+                }
+
+                if coordinator.phase == .reviewing {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("저장") {
+                            save()
+                        }
+                        .disabled(!coordinator.canSave)
+                    }
+                }
+            }
+        }
+        .fileImporter(
+            isPresented: $isFileImporterPresented,
+            allowedContentTypes: [.pdf],
+            allowsMultipleSelection: false,
+            onCompletion: handleFileSelection
+        )
+        .sheet(item: $previewDocument) { document in
+            PDFPreviewView(url: document.url)
+        }
+        .interactiveDismissDisabled(isBusy || coordinator.hasPendingImport)
+        .confirmationDialog(
+            "가져오기를 취소할까요?",
+            isPresented: $isDiscardConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("PDF와 편집 내용 버리기", role: .destructive) {
+                cancelAndDismiss()
+            }
+            Button("계속 편집", role: .cancel) {}
+        } message: {
+            Text("아직 저장하지 않은 곡 제목, 키, 페이지 범위가 사라집니다.")
+        }
+        .alert(
+            "PDF를 처리할 수 없어요",
+            isPresented: Binding(
+                get: { coordinator.errorMessage != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        coordinator.clearError()
+                    }
+                }
+            )
+        ) {
+            Button("확인", role: .cancel) {
+                coordinator.clearError()
+            }
+        } message: {
+            Text(coordinator.errorMessage ?? "알 수 없는 오류가 발생했습니다.")
+        }
+        .onDisappear {
+            Task {
+                await coordinator.cancel()
+            }
+        }
+    }
+
+    private var selectionContent: some View {
+        ContentUnavailableView {
+            Label("찬양 악보 PDF 선택", systemImage: "doc.badge.plus")
+        } description: {
+            Text("여러 곡이 들어 있는 PDF도 그대로 선택할 수 있어요.")
+        } actions: {
+            Button("파일 앱에서 선택") {
+                isFileImporterPresented = true
+            }
+            .buttonStyle(.borderedProminent)
+        }
+    }
+
+    private var isBusy: Bool {
+        coordinator.phase == .staging || coordinator.phase == .saving
+    }
+
+    private func progressContent(title: String, message: String) -> some View {
+        VStack(spacing: 18) {
+            ProgressView()
+                .controlSize(.large)
+
+            VStack(spacing: 6) {
+                Text(title)
+                    .font(.headline)
+
+                Text(message)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .padding(32)
+    }
+
+    private func handleFileSelection(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard let sourceURL = urls.first else { return }
+            Task {
+                await coordinator.stagePDF(
+                    from: sourceURL,
+                    in: modelContext.container
+                )
+            }
+        case .failure(let error):
+            if (error as? CocoaError)?.code != .userCancelled {
+                coordinator.errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func save() {
+        Task {
+            let didSave = await coordinator.save(
+                in: modelContext.container
+            )
+            if didSave {
+                dismiss()
+            }
+        }
+    }
+
+    private func cancelAndDismiss() {
+        Task {
+            await coordinator.cancel()
+            dismiss()
+        }
+    }
+
+    private func requestCancellation() {
+        if coordinator.hasPendingImport {
+            isDiscardConfirmationPresented = true
+        } else {
+            dismiss()
+        }
+    }
+
+    private func showPreview() {
+        Task {
+            guard let url = await coordinator.previewURL() else { return }
+            previewDocument = PDFPreviewDocument(url: url)
+        }
+    }
+}
+
+private struct PDFImportReviewForm: View {
+    @Bindable var coordinator: PDFImportCoordinator
+    let previewPDF: () -> Void
+    let selectAnotherPDF: () -> Void
+
+    var body: some View {
+        Form {
+            if let stagedPDF = coordinator.stagedPDF {
+                Section("원본 PDF") {
+                    LabeledContent("파일", value: stagedPDF.originalFileName)
+                    LabeledContent("페이지", value: "\(stagedPDF.pageCount)페이지")
+                    LabeledContent(
+                        "크기",
+                        value: ByteCountFormatter.string(
+                            fromByteCount: stagedPDF.fileSize,
+                            countStyle: .file
+                        )
+                    )
+
+                    Button {
+                        previewPDF()
+                    } label: {
+                        Label("원본 PDF 미리보기", systemImage: "doc.text.magnifyingglass")
+                    }
+
+                    Button("다른 PDF 선택") {
+                        selectAnotherPDF()
+                    }
+                }
+
+                ForEach($coordinator.drafts) { $draft in
+                    Section {
+                        TextField("곡 제목", text: $draft.title)
+
+                        Picker("대표 키", selection: $draft.musicalKey) {
+                            Text("미지정").tag(nil as MusicalKey?)
+                            ForEach(MusicalKey.allCases) { musicalKey in
+                                Text(musicalKey.displayName)
+                                    .tag(musicalKey as MusicalKey?)
+                            }
+                        }
+
+                        pageInput(
+                            title: "시작 페이지",
+                            pageNumber: $draft.startPageNumber,
+                            pageCount: stagedPDF.pageCount
+                        )
+                        pageInput(
+                            title: "마지막 페이지",
+                            pageNumber: $draft.endPageNumber,
+                            pageCount: stagedPDF.pageCount
+                        )
+
+                        Button("이 곡 삭제", role: .destructive) {
+                            coordinator.removeSongDraft(id: draft.id)
+                        }
+                    } header: {
+                        Text(sectionTitle(for: draft.id))
+                    }
+                }
+
+                Section {
+                    Button {
+                        coordinator.addSongDraft()
+                    } label: {
+                        Label("곡 추가", systemImage: "plus.circle")
+                    }
+                } footer: {
+                    Text("한 페이지에서 곡이 바뀌면 앞 곡의 마지막 페이지와 다음 곡의 시작 페이지를 같게 둘 수 있어요. 표지처럼 곡에 포함되지 않는 페이지는 비워 둘 수 있습니다.")
+                }
+
+                if let validationMessage = coordinator.validationMessage {
+                    Section {
+                        Label(validationMessage, systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+        }
+    }
+
+    private func pageInput(
+        title: String,
+        pageNumber: Binding<Int>,
+        pageCount: Int
+    ) -> some View {
+        let clampedPageNumber = Binding(
+            get: { pageNumber.wrappedValue },
+            set: { newValue in
+                pageNumber.wrappedValue = min(max(newValue, 1), pageCount)
+            }
+        )
+
+        return LabeledContent(title) {
+            TextField("페이지", value: clampedPageNumber, format: .number)
+                .keyboardType(.numberPad)
+                .multilineTextAlignment(.trailing)
+                .frame(minWidth: 44, maxWidth: 72)
+                .accessibilityLabel(title)
+
+            Stepper(
+                title,
+                value: clampedPageNumber,
+                in: 1...pageCount
+            )
+            .labelsHidden()
+            .accessibilityLabel("\(title) 조절")
+        }
+    }
+
+    private func sectionTitle(for id: UUID) -> String {
+        guard let index = coordinator.drafts.firstIndex(where: { $0.id == id }) else {
+            return "곡"
+        }
+        return "곡 \(index + 1)"
+    }
+}
+
+private struct PDFPreviewDocument: Identifiable {
+    let id = UUID()
+    let url: URL
+}

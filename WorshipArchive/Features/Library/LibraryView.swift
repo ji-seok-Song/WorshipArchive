@@ -6,6 +6,12 @@ struct LibraryView: View {
     @Query(sort: \ArchiveDocument.importedAt, order: .reverse) private var documents: [ArchiveDocument]
     @State private var mode: LibraryMode = .songs
 
+    let addPDF: () -> Void
+
+    init(addPDF: @escaping () -> Void = {}) {
+        self.addPDF = addPDF
+    }
+
     var body: some View {
         VStack(spacing: 16) {
             Picker("라이브러리 보기", selection: $mode) {
@@ -26,6 +32,13 @@ struct LibraryView: View {
         .padding(.top, 8)
         .background(ArchiveTheme.background)
         .navigationTitle("라이브러리")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button(action: addPDF) {
+                    Label("PDF 추가", systemImage: "plus")
+                }
+            }
+        }
     }
 
     @ViewBuilder

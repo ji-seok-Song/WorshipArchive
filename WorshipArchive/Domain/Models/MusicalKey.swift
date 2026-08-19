@@ -1,6 +1,6 @@
 import Foundation
 
-enum MusicalKey: String, Codable, CaseIterable, Identifiable {
+enum MusicalKey: String, Codable, CaseIterable, Identifiable, Sendable {
     case cMajor
     case cSharpMajor
     case dMajor
