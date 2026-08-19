@@ -12,6 +12,7 @@ struct WorshipArchiveApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .tint(ArchiveTheme.tint)
         }
     }
 }
