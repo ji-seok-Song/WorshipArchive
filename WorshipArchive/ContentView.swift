@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 struct ContentView: View {
     @State private var selection: AppDestination = .home
@@ -45,4 +46,5 @@ struct ContentView: View {
 
 #Preview {
     ContentView()
+        .modelContainer(AppModelContainer.preview)
 }
