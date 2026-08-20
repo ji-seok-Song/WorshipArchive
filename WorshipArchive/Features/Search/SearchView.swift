@@ -12,6 +12,9 @@ struct SearchView: View {
     @State private var performanceEndDate: Date
     @State private var selectedServiceType = ""
     @State private var favoriteSaveErrorMessage: String?
+    @State private var committedQuery = ""
+    @State private var matchingSongIDs: [UUID] = []
+    @State private var searchRefreshID = UUID()
 
     let fileAccess: any StoredPDFAccessing
 
@@ -29,13 +32,20 @@ struct SearchView: View {
     }
 
     var body: some View {
+        let displayedSongs = displayedSongs
+        let showsResults = shouldShowResults
+        let request = searchRequest
+
         ScrollView {
             VStack(spacing: 16) {
-                filterPanel
+                filterPanel(
+                    resultCount: displayedSongs.count,
+                    showsResults: showsResults
+                )
 
-                if shouldShowResults, !filteredSongs.isEmpty {
+                if showsResults, !displayedSongs.isEmpty {
                     LazyVStack(spacing: 12) {
-                        ForEach(filteredSongs, id: \.id) { song in
+                        ForEach(displayedSongs, id: \.id) { song in
                             SongLibraryRow(
                                 title: song.title,
                                 subtitle: keySummary(for: song),
@@ -49,7 +59,7 @@ struct SearchView: View {
                         }
                     }
                 } else {
-                    searchEmptyState
+                    searchEmptyState(hasFilter: showsResults)
                 }
             }
             .frame(maxWidth: 620)
@@ -58,6 +68,12 @@ struct SearchView: View {
         .background(ArchiveTheme.background)
         .navigationTitle("검색")
         .searchable(text: $query, prompt: "제목, 가사 또는 메모 검색")
+        .task(id: request) {
+            await refreshSearch(for: request)
+        }
+        .onAppear {
+            searchRefreshID = UUID()
+        }
         .alert(
             "즐겨찾기를 저장하지 못했어요",
             isPresented: favoriteErrorIsPresented
@@ -70,7 +86,7 @@ struct SearchView: View {
 
     private var filter: SongSearchFilter {
         SongSearchFilter(
-            query: query,
+            query: committedQuery,
             musicalKey: selectedKey,
             performanceDateRange: performanceDateRange,
             serviceType: selectedServiceType
@@ -87,8 +103,9 @@ struct SearchView: View {
         )
     }
 
-    private var filteredSongs: [Song] {
-        SongSearchMatcher.filter(songs, using: filter)
+    private var displayedSongs: [Song] {
+        let matchingIDs = Set(matchingSongIDs)
+        return songs.filter { matchingIDs.contains($0.id) }
     }
 
     private var shouldShowResults: Bool {
@@ -96,6 +113,24 @@ struct SearchView: View {
             || selectedKey != nil
             || usesPerformanceDateFilter
             || !selectedServiceType.isEmpty
+    }
+
+    private var isQueryPending: Bool {
+        SearchTextNormalizer.normalize(query)
+            != SearchTextNormalizer.normalize(committedQuery)
+    }
+
+    private var searchRequest: SongSearchRefreshRequest {
+        SongSearchRefreshRequest(
+            query: query,
+            selectedKey: selectedKey,
+            usesPerformanceDateFilter: usesPerformanceDateFilter,
+            performanceStartDate: performanceStartDate,
+            performanceEndDate: performanceEndDate,
+            selectedServiceType: selectedServiceType,
+            contentRevisions: SongSearchContentRevision.capture(songs),
+            refreshID: searchRefreshID
+        )
     }
 
     private var favoriteErrorIsPresented: Binding<Bool> {
@@ -109,14 +144,20 @@ struct SearchView: View {
         )
     }
 
-    private var filterPanel: some View {
+    private func filterPanel(
+        resultCount: Int,
+        showsResults: Bool
+    ) -> some View {
         VStack(spacing: 14) {
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 12) {
                     keyMenu
                     serviceTypeMenu
                     Spacer(minLength: 0)
-                    resultCount
+                    resultCountLabel(
+                        resultCount: resultCount,
+                        showsResults: showsResults
+                    )
                 }
 
                 VStack(alignment: .leading, spacing: 10) {
@@ -124,7 +165,10 @@ struct SearchView: View {
                         keyMenu
                         serviceTypeMenu
                     }
-                    resultCount
+                    resultCountLabel(
+                        resultCount: resultCount,
+                        showsResults: showsResults
+                    )
                 }
             }
 
@@ -146,7 +190,7 @@ struct SearchView: View {
                 }
             }
 
-            if shouldShowResults {
+            if showsResults || isQueryPending {
                 Button("필터 초기화", systemImage: "arrow.counterclockwise") {
                     resetFilters()
                 }
@@ -203,8 +247,15 @@ struct SearchView: View {
         .disabled(availableServiceTypes.isEmpty)
     }
 
-    private var resultCount: some View {
-        Text(shouldShowResults ? "\(filteredSongs.count)곡" : "전체 \(songs.count)곡")
+    private func resultCountLabel(
+        resultCount: Int,
+        showsResults: Bool
+    ) -> some View {
+        Text(
+            isQueryPending
+                ? "검색 중…"
+                : showsResults ? "\(resultCount)곡" : "전체 \(songs.count)곡"
+        )
             .font(.subheadline)
             .foregroundStyle(.secondary)
     }
@@ -240,10 +291,8 @@ struct SearchView: View {
         }
     }
 
-    private var searchEmptyState: some View {
-        let hasFilter = shouldShowResults
-
-        return ArchiveEmptyState(
+    private func searchEmptyState(hasFilter: Bool) -> some View {
+        ArchiveEmptyState(
             systemImage: hasFilter ? "music.note" : "text.magnifyingglass",
             title: hasFilter ? "검색 결과가 없어요" : "기억나는 단서를 입력해 보세요",
             message: hasFilter
@@ -253,7 +302,7 @@ struct SearchView: View {
     }
 
     private var emptyResultMessage: String {
-        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedQuery = committedQuery.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if usesPerformanceDateFilter || !selectedServiceType.isEmpty {
             return "선택한 연주 기록 조건과 일치하는 악보가 없어요."
@@ -300,6 +349,8 @@ struct SearchView: View {
 
     private func resetFilters() {
         query = ""
+        committedQuery = ""
+        matchingSongIDs = []
         selectedKey = nil
         usesPerformanceDateFilter = false
         selectedServiceType = ""
@@ -311,6 +362,48 @@ struct SearchView: View {
             to: today
         ) ?? today
         performanceEndDate = today
+        searchRefreshID = UUID()
+    }
+
+    private func refreshSearch(
+        for request: SongSearchRefreshRequest
+    ) async {
+        do {
+            try await SearchQueryDebounce.waitIfNeeded(
+                pendingQuery: request.query,
+                committedQuery: committedQuery
+            )
+        } catch {
+            return
+        }
+
+        guard !Task.isCancelled else { return }
+
+        let dateRange: PerformanceDateRange?
+        if request.usesPerformanceDateFilter {
+            dateRange = try? PerformanceDateRange(
+                startDate: request.performanceStartDate,
+                endDate: request.performanceEndDate,
+                calendar: .current
+            )
+        } else {
+            dateRange = nil
+        }
+
+        let requestFilter = SongSearchFilter(
+            query: request.query,
+            musicalKey: request.selectedKey,
+            performanceDateRange: dateRange,
+            serviceType: request.selectedServiceType
+        )
+        let matches = SongSearchMatcher.filter(
+            songs,
+            using: requestFilter
+        )
+
+        guard !Task.isCancelled else { return }
+        matchingSongIDs = matches.map(\.id)
+        committedQuery = request.query
     }
 }
 
@@ -318,4 +411,5 @@ struct SearchView: View {
     NavigationStack {
         SearchView()
     }
+    .modelContainer(AppModelContainer.preview)
 }
