@@ -122,6 +122,167 @@ final class PDFViewerTests: XCTestCase {
         XCTAssertEqual(restored.clamped(7), 5)
     }
 
+    func testPageSessionProvidesBoundedStageNavigation() throws {
+        let session = try PDFViewerPageSession(
+            startPageIndex: 2,
+            endPageIndex: 5,
+            lastViewedPageIndex: 3,
+            documentPageCount: 8
+        )
+
+        XCTAssertEqual(session.pageCount, 4)
+        XCTAssertEqual(session.relativePageNumber(for: 2), 1)
+        XCTAssertEqual(session.relativePageNumber(for: 5), 4)
+        XCTAssertEqual(session.relativePageNumber(for: 99), 4)
+        XCTAssertEqual(session.previousPageIndex(from: 2), 2)
+        XCTAssertEqual(session.previousPageIndex(from: 4), 3)
+        XCTAssertEqual(session.nextPageIndex(from: 4), 5)
+        XCTAssertEqual(session.nextPageIndex(from: 5), 5)
+        XCTAssertEqual(session.visiblePageIndices(containing: 2, pageSpan: 2), [2, 3])
+        XCTAssertEqual(session.visiblePageIndices(containing: 3, pageSpan: 2), [2, 3])
+        XCTAssertEqual(session.visiblePageIndices(containing: 5, pageSpan: 2), [4, 5])
+        XCTAssertEqual(session.previousPageIndex(from: 4, pageSpan: 2), 2)
+        XCTAssertEqual(session.nextPageIndex(from: 3, pageSpan: 2), 4)
+        XCTAssertEqual(session.nextPageIndex(from: 5, pageSpan: 2), 5)
+    }
+
+    @MainActor
+    func testIdleTimerLeasesRestoreExistingValueAfterLastRelease() {
+        var idleTimerIsDisabled = false
+        var writtenValues: [Bool] = []
+        let coordinator = PDFViewerIdleTimerCoordinator(
+            readValue: { idleTimerIsDisabled },
+            writeValue: {
+                idleTimerIsDisabled = $0
+                writtenValues.append($0)
+            }
+        )
+
+        let firstLease = coordinator.acquire()
+        let secondLease = coordinator.acquire()
+        XCTAssertTrue(idleTimerIsDisabled)
+        XCTAssertEqual(writtenValues, [true])
+
+        coordinator.release(firstLease)
+        XCTAssertTrue(idleTimerIsDisabled)
+        XCTAssertEqual(writtenValues, [true])
+
+        coordinator.release(secondLease)
+        XCTAssertFalse(idleTimerIsDisabled)
+        XCTAssertEqual(writtenValues, [true, false])
+    }
+
+    @MainActor
+    func testIdleTimerLeasePreservesPreexistingDisabledState() {
+        var idleTimerIsDisabled = true
+        let coordinator = PDFViewerIdleTimerCoordinator(
+            readValue: { idleTimerIsDisabled },
+            writeValue: { idleTimerIsDisabled = $0 }
+        )
+
+        let lease = coordinator.acquire()
+        coordinator.release(lease)
+
+        XCTAssertTrue(idleTimerIsDisabled)
+    }
+
+    @MainActor
+    func testPDFKitCoordinatorAppliesControlNavigationWithoutDuplicateReport() async throws {
+        let pdfURL = try PDFTestFixture.make(pages: ["표지", "첫 장", "둘째 장", "부록"])
+        defer { PDFTestFixture.remove(pdfURL) }
+        let document = try XCTUnwrap(PDFDocument(url: pdfURL))
+        let session = try PDFViewerPageSession(
+            startPageIndex: 1,
+            endPageIndex: 2,
+            lastViewedPageIndex: 1,
+            documentPageCount: 4
+        )
+        var reportedPages: [Int] = []
+        let initialBridge = PDFKitScoreView(
+            document: document,
+            pageSession: session,
+            currentPageIndex: 1,
+            onPageChanged: { reportedPages.append($0) }
+        )
+        let coordinator = initialBridge.makeCoordinator()
+        let pdfView = PDFView()
+        coordinator.configure(pdfView)
+
+        coordinator.update(parent: initialBridge, pdfView: pdfView)
+        await waitForNextMainTurn()
+
+        let nextPageBridge = PDFKitScoreView(
+            document: document,
+            pageSession: session,
+            currentPageIndex: 2,
+            onPageChanged: { reportedPages.append($0) }
+        )
+        coordinator.update(parent: nextPageBridge, pdfView: pdfView)
+        await waitForNextMainTurn()
+
+        XCTAssertEqual(currentPageIndex(in: pdfView), 2)
+        XCTAssertTrue(reportedPages.isEmpty)
+    }
+
+    @MainActor
+    func testPDFKitCoordinatorReturnsSwipeToSongPageRange() async throws {
+        let pdfURL = try PDFTestFixture.make(pages: ["표지", "첫 장", "둘째 장", "부록"])
+        defer { PDFTestFixture.remove(pdfURL) }
+        let document = try XCTUnwrap(PDFDocument(url: pdfURL))
+        let session = try PDFViewerPageSession(
+            startPageIndex: 1,
+            endPageIndex: 2,
+            lastViewedPageIndex: 2,
+            documentPageCount: 4
+        )
+        var reportedPages: [Int] = []
+        let bridge = PDFKitScoreView(
+            document: document,
+            pageSession: session,
+            currentPageIndex: 2,
+            onPageChanged: { reportedPages.append($0) }
+        )
+        let coordinator = bridge.makeCoordinator()
+        let pdfView = PDFView()
+        coordinator.configure(pdfView)
+
+        coordinator.update(parent: bridge, pdfView: pdfView)
+        await waitForNextMainTurn()
+        pdfView.go(to: try XCTUnwrap(document.page(at: 3)))
+        await waitForNextMainTurn()
+
+        XCTAssertEqual(currentPageIndex(in: pdfView), 2)
+        XCTAssertEqual(reportedPages, [2])
+    }
+
+    @MainActor
+    func testTwoPageViewNeverAddsAPagePastTheSongRange() throws {
+        let pdfURL = try PDFTestFixture.make(pages: [
+            "표지", "첫 장", "둘째 장", "셋째 장", "부록"
+        ])
+        defer { PDFTestFixture.remove(pdfURL) }
+        let document = try XCTUnwrap(PDFDocument(url: pdfURL))
+        let session = try PDFViewerPageSession(
+            startPageIndex: 1,
+            endPageIndex: 3,
+            lastViewedPageIndex: 3,
+            documentPageCount: 5
+        )
+        let bridge = PDFKitTwoPageScoreView(
+            document: document,
+            pageSession: session,
+            currentPageIndex: 3
+        )
+        let coordinator = bridge.makeCoordinator()
+        let containerView = PDFKitTwoPageContainerView()
+
+        coordinator.update(parent: bridge, containerView: containerView)
+
+        XCTAssertEqual(currentPageIndex(in: containerView.primaryPDFView), 3)
+        XCTAssertTrue(containerView.secondaryPDFView.isHidden)
+        XCTAssertNil(containerView.secondaryPDFView.document)
+    }
+
     @MainActor
     func testLoaderRetriesAfterFailureAndUsesStoredMetadata() async throws {
         let pdfURL = try PDFTestFixture.make(pages: [

@@ -2,16 +2,23 @@ import Observation
 import PDFKit
 import SwiftData
 import SwiftUI
+import UIKit
 
 struct PDFViewerView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.scenePhase) private var scenePhase
 
     let document: ArchiveDocument
     let sheet: SongSheet?
 
     @State private var loader: PDFViewerLoader
     @State private var loadRequestID = UUID()
+    @State private var currentPageIndex: Int?
     @State private var persistenceErrorMessage: String?
+    @State private var isPerformanceMode = false
+    @State private var prefersTwoPageLayout = true
+    @State private var idleTimerLease: UUID?
 
     init(
         document: ArchiveDocument,
@@ -33,12 +40,7 @@ struct PDFViewerView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             case .loaded(let loadedDocument):
-                PDFKitScoreView(
-                    document: loadedDocument.document,
-                    pageSession: loadedDocument.pageSession,
-                    onPageChanged: recordPageChange
-                )
-                .ignoresSafeArea(edges: .bottom)
+                scoreViewer(for: loadedDocument)
 
             case .failed(let message):
                 ContentUnavailableView {
@@ -55,11 +57,32 @@ struct PDFViewerView: View {
         }
         .navigationTitle(viewerTitle)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(isPerformanceMode ? .hidden : .visible, for: .navigationBar)
+        .persistentSystemOverlays(isPerformanceMode ? .hidden : .automatic)
         .task(id: loadRequestID) {
             await loadDocument()
         }
+        .onAppear {
+            updateIdleTimerLease(
+                performanceModeIsEnabled: isPerformanceMode,
+                scenePhase: scenePhase
+            )
+        }
+        .onChange(of: isPerformanceMode) { _, isEnabled in
+            updateIdleTimerLease(
+                performanceModeIsEnabled: isEnabled,
+                scenePhase: scenePhase
+            )
+        }
+        .onChange(of: scenePhase) { _, newScenePhase in
+            updateIdleTimerLease(
+                performanceModeIsEnabled: isPerformanceMode,
+                scenePhase: newScenePhase
+            )
+        }
         .onDisappear {
             loader.cancel()
+            releaseIdleTimerLease()
         }
         .alert(
             "열람 기록을 저장하지 못했어요",
@@ -91,13 +114,87 @@ struct PDFViewerView: View {
         return fileName.isEmpty ? "악보" : fileName
     }
 
+    private func scoreViewer(
+        for loadedDocument: PDFViewerLoadedDocument
+    ) -> some View {
+        let pageSession = loadedDocument.pageSession
+        let displayedPageIndex = pageSession.clamped(
+            currentPageIndex ?? pageSession.initialPageIndex
+        )
+
+        return GeometryReader { proxy in
+            let allowsTwoPageLayout = horizontalSizeClass == .regular
+                && proxy.size.width > proxy.size.height
+                && pageSession.pageCount > 1
+            let usesTwoPageLayout = allowsTwoPageLayout && prefersTwoPageLayout
+            let pageSpan = usesTwoPageLayout ? 2 : 1
+
+            Group {
+                if usesTwoPageLayout {
+                    PDFKitTwoPageScoreView(
+                        document: loadedDocument.document,
+                        pageSession: pageSession,
+                        currentPageIndex: displayedPageIndex
+                    )
+                } else {
+                    PDFKitScoreView(
+                        document: loadedDocument.document,
+                        pageSession: pageSession,
+                        currentPageIndex: displayedPageIndex,
+                        onPageChanged: { pageIndex in
+                            selectPage(pageIndex, in: pageSession)
+                        }
+                    )
+                }
+            }
+            .ignoresSafeArea(edges: isPerformanceMode ? .all : .bottom)
+            .overlay(alignment: .bottom) {
+                PDFViewerPageControls(
+                    pageSession: pageSession,
+                    currentPageIndex: displayedPageIndex,
+                    pageSpan: pageSpan,
+                    allowsTwoPageLayout: allowsTwoPageLayout,
+                    usesTwoPageLayout: usesTwoPageLayout,
+                    isPerformanceMode: isPerformanceMode,
+                    selectPage: { pageIndex in
+                        selectPage(pageIndex, in: pageSession)
+                    },
+                    toggleTwoPageLayout: {
+                        prefersTwoPageLayout.toggle()
+                    },
+                    togglePerformanceMode: {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isPerformanceMode.toggle()
+                        }
+                    }
+                )
+                .padding(.horizontal, 12)
+                .padding(.bottom, isPerformanceMode ? 20 : 12)
+            }
+        }
+    }
+
+    private func selectPage(
+        _ pageIndex: Int,
+        in pageSession: PDFViewerPageSession
+    ) {
+        let clampedPageIndex = pageSession.clamped(pageIndex)
+        guard currentPageIndex != clampedPageIndex else { return }
+
+        currentPageIndex = clampedPageIndex
+        recordPageChange(clampedPageIndex)
+    }
+
     private func loadDocument() async {
+        currentPageIndex = nil
         guard let loadedDocument = await loader.load(
             document: document,
             sheet: sheet
         ) else {
             return
         }
+
+        currentPageIndex = loadedDocument.pageSession.initialPageIndex
 
         guard let sheet else { return }
 
@@ -125,6 +222,63 @@ struct PDFViewerView: View {
         } catch {
             persistenceErrorMessage = error.localizedDescription
         }
+    }
+
+    private func updateIdleTimerLease(
+        performanceModeIsEnabled: Bool,
+        scenePhase: ScenePhase
+    ) {
+        if performanceModeIsEnabled, scenePhase == .active {
+            guard idleTimerLease == nil else { return }
+            idleTimerLease = PDFViewerIdleTimerCoordinator.shared.acquire()
+        } else {
+            releaseIdleTimerLease()
+        }
+    }
+
+    private func releaseIdleTimerLease() {
+        guard let idleTimerLease else { return }
+        PDFViewerIdleTimerCoordinator.shared.release(idleTimerLease)
+        self.idleTimerLease = nil
+    }
+}
+
+@MainActor
+final class PDFViewerIdleTimerCoordinator {
+    static let shared = PDFViewerIdleTimerCoordinator(
+        readValue: { UIApplication.shared.isIdleTimerDisabled },
+        writeValue: { UIApplication.shared.isIdleTimerDisabled = $0 }
+    )
+
+    private let readValue: () -> Bool
+    private let writeValue: (Bool) -> Void
+    private var activeLeases: Set<UUID> = []
+    private var valueBeforeFirstLease: Bool?
+
+    init(
+        readValue: @escaping () -> Bool,
+        writeValue: @escaping (Bool) -> Void
+    ) {
+        self.readValue = readValue
+        self.writeValue = writeValue
+    }
+
+    func acquire() -> UUID {
+        let lease = UUID()
+        if activeLeases.isEmpty {
+            valueBeforeFirstLease = readValue()
+            writeValue(true)
+        }
+        activeLeases.insert(lease)
+        return lease
+    }
+
+    func release(_ lease: UUID) {
+        guard activeLeases.remove(lease) != nil else { return }
+        guard activeLeases.isEmpty, let valueBeforeFirstLease else { return }
+
+        self.valueBeforeFirstLease = nil
+        writeValue(valueBeforeFirstLease)
     }
 }
 
@@ -341,6 +495,195 @@ nonisolated struct PDFViewerPageSession: Equatable, Sendable {
 
     func clamped(_ pageIndex: Int) -> Int {
         min(max(pageIndex, startPageIndex), endPageIndex)
+    }
+
+    var pageCount: Int {
+        endPageIndex - startPageIndex + 1
+    }
+
+    func relativePageNumber(for pageIndex: Int) -> Int {
+        clamped(pageIndex) - startPageIndex + 1
+    }
+
+    func previousPageIndex(from pageIndex: Int) -> Int {
+        previousPageIndex(from: pageIndex, pageSpan: 1)
+    }
+
+    func nextPageIndex(from pageIndex: Int) -> Int {
+        nextPageIndex(from: pageIndex, pageSpan: 1)
+    }
+
+    func pageGroupStart(containing pageIndex: Int, pageSpan: Int) -> Int {
+        let normalizedSpan = max(pageSpan, 1)
+        let offset = clamped(pageIndex) - startPageIndex
+        return startPageIndex + (offset / normalizedSpan) * normalizedSpan
+    }
+
+    func visiblePageIndices(
+        containing pageIndex: Int,
+        pageSpan: Int
+    ) -> [Int] {
+        let normalizedSpan = max(pageSpan, 1)
+        let groupStart = pageGroupStart(
+            containing: pageIndex,
+            pageSpan: normalizedSpan
+        )
+        let groupEnd = min(groupStart + normalizedSpan - 1, endPageIndex)
+        return Array(groupStart...groupEnd)
+    }
+
+    func previousPageIndex(from pageIndex: Int, pageSpan: Int) -> Int {
+        let normalizedSpan = max(pageSpan, 1)
+        let groupStart = pageGroupStart(
+            containing: pageIndex,
+            pageSpan: normalizedSpan
+        )
+        return max(groupStart - normalizedSpan, startPageIndex)
+    }
+
+    func nextPageIndex(from pageIndex: Int, pageSpan: Int) -> Int {
+        let normalizedSpan = max(pageSpan, 1)
+        let groupStart = pageGroupStart(
+            containing: pageIndex,
+            pageSpan: normalizedSpan
+        )
+        return min(groupStart + normalizedSpan, endPageIndex)
+    }
+}
+
+private struct PDFViewerPageControls: View {
+    let pageSession: PDFViewerPageSession
+    let currentPageIndex: Int
+    let pageSpan: Int
+    let allowsTwoPageLayout: Bool
+    let usesTwoPageLayout: Bool
+    let isPerformanceMode: Bool
+    let selectPage: (Int) -> Void
+    let toggleTwoPageLayout: () -> Void
+    let togglePerformanceMode: () -> Void
+
+    private var visiblePageIndices: [Int] {
+        pageSession.visiblePageIndices(
+            containing: currentPageIndex,
+            pageSpan: pageSpan
+        )
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            pageButton(
+                title: "이전 페이지",
+                systemImage: "chevron.left",
+                isEnabled: visiblePageIndices.first != pageSession.startPageIndex
+            ) {
+                selectPage(
+                    pageSession.previousPageIndex(
+                        from: currentPageIndex,
+                        pageSpan: pageSpan
+                    )
+                )
+            }
+
+            Text(pageDisplayText)
+            .font(.subheadline.monospacedDigit().weight(.semibold))
+            .frame(minWidth: 64)
+            .accessibilityLabel(pageAccessibilityLabel)
+
+            pageButton(
+                title: "다음 페이지",
+                systemImage: "chevron.right",
+                isEnabled: visiblePageIndices.last != pageSession.endPageIndex
+            ) {
+                selectPage(
+                    pageSession.nextPageIndex(
+                        from: currentPageIndex,
+                        pageSpan: pageSpan
+                    )
+                )
+            }
+
+            Divider()
+                .frame(height: 22)
+
+            if allowsTwoPageLayout {
+                pageButton(
+                    title: usesTwoPageLayout ? "한 페이지로 보기" : "두 페이지로 보기",
+                    systemImage: usesTwoPageLayout ? "rectangle" : "rectangle.split.2x1",
+                    isEnabled: true,
+                    action: toggleTwoPageLayout
+                )
+            }
+
+            pageButton(
+                title: isPerformanceMode ? "전체 화면 종료" : "전체 화면 연주",
+                systemImage: isPerformanceMode
+                    ? "arrow.down.right.and.arrow.up.left"
+                    : "arrow.up.left.and.arrow.down.right",
+                isEnabled: true,
+                action: togglePerformanceMode
+            )
+
+            Divider()
+                .frame(height: 22)
+
+            ViewThatFits(in: .horizontal) {
+                Label("오프라인 저장", systemImage: "internaldrive.fill")
+                    .font(.caption.weight(.medium))
+
+                Image(systemName: "internaldrive.fill")
+                    .accessibilityLabel("오프라인 저장")
+            }
+            .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(.ultraThinMaterial, in: .capsule)
+        .overlay {
+            Capsule()
+                .stroke(Color(uiColor: .separator).opacity(0.35), lineWidth: 0.5)
+        }
+        .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
+    }
+
+    private var pageAccessibilityLabel: String {
+        let relativePages = visiblePageIndices.map {
+            String(pageSession.relativePageNumber(for: $0))
+        }.joined(separator: "에서 ")
+        let originalPages = visiblePageIndices.map {
+            String($0 + 1)
+        }.joined(separator: "에서 ")
+        return "악보 \(relativePages) / \(pageSession.pageCount)페이지, 원본 \(originalPages)페이지"
+    }
+
+    private var pageDisplayText: String {
+        let relativePages = visiblePageIndices.map {
+            pageSession.relativePageNumber(for: $0)
+        }
+        guard let firstPage = relativePages.first else {
+            return "1 / \(pageSession.pageCount)"
+        }
+        guard let lastPage = relativePages.last, lastPage != firstPage else {
+            return "\(firstPage) / \(pageSession.pageCount)"
+        }
+        return "\(firstPage)–\(lastPage) / \(pageSession.pageCount)"
+    }
+
+    private func pageButton(
+        title: String,
+        systemImage: String,
+        isEnabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.body.weight(.semibold))
+                .frame(width: 44, height: 44)
+                .contentShape(.circle)
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .foregroundStyle(isEnabled ? ArchiveTheme.tint : Color.secondary.opacity(0.35))
+        .accessibilityLabel(title)
     }
 }
 
