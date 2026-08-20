@@ -38,6 +38,7 @@ struct ContentView: View {
         TabView(selection: $selection) {
             NavigationStack {
                 HomeView(
+                    fileAccess: fileStore,
                     navigate: { destination in
                         selection = destination
                     },

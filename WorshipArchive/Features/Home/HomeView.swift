@@ -1,8 +1,23 @@
 import SwiftUI
+import SwiftData
 
 struct HomeView: View {
+    @Query private var songs: [Song]
+    @Query private var sheets: [SongSheet]
+
+    let fileAccess: any StoredPDFAccessing
     let navigate: (AppDestination) -> Void
     let addPDF: () -> Void
+
+    init(
+        fileAccess: any StoredPDFAccessing = LocalPDFFileStore.live(),
+        navigate: @escaping (AppDestination) -> Void,
+        addPDF: @escaping () -> Void
+    ) {
+        self.fileAccess = fileAccess
+        self.navigate = navigate
+        self.addPDF = addPDF
+    }
 
     private let columns = [
         GridItem(.flexible(), spacing: 12),
@@ -40,14 +55,36 @@ struct HomeView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("최근 본 악보")
-                        .font(.title3.bold())
+                    HStack {
+                        Text("최근 본 악보")
+                            .font(.title3.bold())
 
-                    ArchiveEmptyState(
-                        systemImage: "clock.arrow.circlepath",
-                        title: "아직 열어본 악보가 없어요",
-                        message: "PDF를 등록하고 곡을 열면 최근 항목에서 바로 이어볼 수 있어요."
-                    )
+                        Spacer()
+
+                        if !recentScores.isEmpty {
+                            Button("전체 보기") {
+                                navigate(.library)
+                            }
+                            .font(.subheadline.weight(.semibold))
+                        }
+                    }
+
+                    if recentScores.isEmpty {
+                        ArchiveEmptyState(
+                            systemImage: "clock.arrow.circlepath",
+                            title: "아직 열어본 악보가 없어요",
+                            message: "PDF를 등록하고 곡을 열면 최근 항목에서 바로 이어볼 수 있어요."
+                        )
+                    } else {
+                        LazyVStack(spacing: 12) {
+                            ForEach(recentScores) { entry in
+                                RecentScoreRow(
+                                    entry: entry,
+                                    fileAccess: fileAccess
+                                )
+                            }
+                        }
+                    }
                 }
             }
             .frame(maxWidth: 760)
@@ -56,6 +93,13 @@ struct HomeView: View {
         }
         .background(ArchiveTheme.background)
         .navigationTitle("찬양서랍")
+    }
+
+    private var recentScores: [RecentScoreEntry] {
+        RecentScoreListing.entries(
+            songs: songs,
+            sheets: sheets
+        )
     }
 
     private var welcomeCard: some View {
@@ -99,8 +143,87 @@ struct HomeView: View {
     }
 }
 
+private struct RecentScoreRow: View {
+    let entry: RecentScoreEntry
+    let fileAccess: any StoredPDFAccessing
+
+    var body: some View {
+        HStack(spacing: 0) {
+            NavigationLink {
+                PDFViewerView(
+                    document: entry.document,
+                    sheet: entry.sheet,
+                    fileAccess: fileAccess
+                )
+            } label: {
+                HStack(spacing: 14) {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(ArchiveTheme.tint)
+                        .frame(width: 44, height: 44)
+                        .background(
+                            ArchiveTheme.tint.opacity(0.12),
+                            in: .rect(cornerRadius: 12)
+                        )
+                        .accessibilityHidden(true)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(entry.song.title)
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+
+                        Text(entry.scoreSummary)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+
+                        Text(entry.openedAt.formatted(date: .abbreviated, time: .shortened))
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+
+                    Spacer(minLength: 8)
+
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                        .accessibilityHidden(true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 14)
+                .padding(.leading, 14)
+                .contentShape(.rect)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(entry.song.title)
+                .accessibilityValue(entry.scoreSummary)
+                .accessibilityHint("마지막으로 본 페이지부터 악보를 엽니다")
+            }
+            .buttonStyle(.plain)
+
+            NavigationLink {
+                SongDetailView(
+                    song: entry.song,
+                    fileAccess: fileAccess
+                )
+            } label: {
+                Image(systemName: "info.circle")
+                    .font(.title3)
+                    .foregroundStyle(ArchiveTheme.tint)
+                    .frame(width: 44, height: 44)
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 8)
+            .accessibilityLabel("\(entry.song.title) 곡 정보")
+            .accessibilityHint("곡 상세 화면을 엽니다")
+        }
+        .background(ArchiveTheme.surface, in: .rect(cornerRadius: 16))
+    }
+}
+
 #Preview {
     NavigationStack {
         HomeView(navigate: { _ in }, addPDF: {})
     }
+    .modelContainer(AppModelContainer.preview)
 }
