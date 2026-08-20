@@ -24,6 +24,7 @@ enum PDFFileStoreError: LocalizedError, Equatable {
     case storedFileCollision
     case invalidStoredFileName
     case storedFileMissing
+    case downloadedFileChanged
 
     var errorDescription: String? {
         switch self {
@@ -47,6 +48,8 @@ enum PDFFileStoreError: LocalizedError, Equatable {
             "안전하지 않은 PDF 경로가 감지되었습니다."
         case .storedFileMissing:
             "보관된 원본 PDF를 찾을 수 없습니다."
+        case .downloadedFileChanged:
+            "내려받은 PDF의 무결성을 확인할 수 없습니다."
         }
     }
 }

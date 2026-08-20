@@ -3,7 +3,7 @@ import Foundation
 import PDFKit
 import UniformTypeIdentifiers
 
-actor LocalPDFFileStore: PDFFileStoring {
+actor LocalPDFFileStore: PDFAssetLocalCaching {
     private let rootDirectory: URL
 
     private var fileManager: FileManager { .default }
@@ -161,6 +161,77 @@ actor LocalPDFFileStore: PDFFileStoring {
         return fileURL
     }
 
+    func installDownloadedPDF(
+        from temporaryURL: URL,
+        named storedFileName: String,
+        expectedChecksum: String,
+        expectedFileSize: Int64,
+        expectedPageCount: Int
+    ) async throws -> URL {
+        guard isValidStoredFileName(storedFileName) else {
+            throw PDFFileStoreError.invalidStoredFileName
+        }
+        guard
+            !expectedChecksum.isEmpty,
+            expectedFileSize >= 0,
+            expectedPageCount > 0
+        else {
+            throw PDFFileStoreError.downloadedFileChanged
+        }
+        guard try isRegularFile(at: temporaryURL) else {
+            throw PDFFileStoreError.sourceIsNotAFile
+        }
+
+        try createDirectoriesIfNeeded()
+
+        let destinationURL = documentsDirectory.appending(path: storedFileName)
+        if fileManager.fileExists(atPath: destinationURL.path) {
+            try validateExistingDownloadedPDF(
+                at: destinationURL,
+                expectedChecksum: expectedChecksum,
+                expectedFileSize: expectedFileSize,
+                expectedPageCount: expectedPageCount
+            )
+            return destinationURL
+        }
+
+        let partialURL = stagingDirectory.appending(
+            path: "\(UUID().uuidString.lowercased()).download-partial"
+        )
+
+        do {
+            try Task.checkCancellation()
+            try fileManager.copyItem(at: temporaryURL, to: partialURL)
+            try validateDownloadedPDF(
+                at: partialURL,
+                expectedChecksum: expectedChecksum,
+                expectedFileSize: expectedFileSize,
+                expectedPageCount: expectedPageCount
+            )
+            try updateModificationDate(of: partialURL)
+
+            do {
+                try fileManager.moveItem(at: partialURL, to: destinationURL)
+            } catch {
+                guard fileManager.fileExists(atPath: destinationURL.path) else {
+                    throw error
+                }
+                try validateExistingDownloadedPDF(
+                    at: destinationURL,
+                    expectedChecksum: expectedChecksum,
+                    expectedFileSize: expectedFileSize,
+                    expectedPageCount: expectedPageCount
+                )
+                try? fileManager.removeItem(at: partialURL)
+            }
+
+            return destinationURL
+        } catch {
+            try? fileManager.removeItem(at: partialURL)
+            throw error
+        }
+    }
+
     func removeStoredFile(named storedFileName: String) async throws {
         guard isValidStoredFileName(storedFileName) else {
             throw PDFFileStoreError.invalidStoredFileName
@@ -277,6 +348,44 @@ actor LocalPDFFileStore: PDFFileStoring {
             fileSize: stagedPDF.fileSize,
             pageCount: stagedPDF.pageCount
         )
+    }
+
+    private func validateDownloadedPDF(
+        at fileURL: URL,
+        expectedChecksum: String,
+        expectedFileSize: Int64,
+        expectedPageCount: Int
+    ) throws {
+        guard try isRegularFile(at: fileURL) else {
+            throw PDFFileStoreError.downloadedFileChanged
+        }
+        guard try sizeOfFile(at: fileURL) == expectedFileSize else {
+            throw PDFFileStoreError.downloadedFileChanged
+        }
+        guard try sha256(of: fileURL) == expectedChecksum else {
+            throw PDFFileStoreError.downloadedFileChanged
+        }
+        guard try validatePDF(at: fileURL) == expectedPageCount else {
+            throw PDFFileStoreError.downloadedFileChanged
+        }
+    }
+
+    private func validateExistingDownloadedPDF(
+        at fileURL: URL,
+        expectedChecksum: String,
+        expectedFileSize: Int64,
+        expectedPageCount: Int
+    ) throws {
+        do {
+            try validateDownloadedPDF(
+                at: fileURL,
+                expectedChecksum: expectedChecksum,
+                expectedFileSize: expectedFileSize,
+                expectedPageCount: expectedPageCount
+            )
+        } catch {
+            throw PDFFileStoreError.storedFileCollision
+        }
     }
 
     private func validatePDF(at fileURL: URL) throws -> Int {
