@@ -63,6 +63,21 @@ final class CloudKitFoundationTests: XCTestCase {
         XCTAssertEqual(sheets.map(\.id), [sheetID])
         XCTAssertEqual(sheets.first?.document?.id, documentID)
         XCTAssertEqual(sheets.first?.song?.id, songID)
+
+        let backupStoreURL = AppModelContainer
+            .cloudMigrationBackupURL(for: storeURL)
+            .appending(path: storeURL.lastPathComponent)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: backupStoreURL.path))
+
+        let backupContainer = try AppModelContainer.make(
+            syncsWithCloudKit: false,
+            storageURL: backupStoreURL
+        )
+        let backupContext = ModelContext(backupContainer)
+        let backupDocuments = try backupContext.fetch(
+            FetchDescriptor<ArchiveDocument>()
+        )
+        XCTAssertEqual(backupDocuments.map(\.id), [documentID])
     }
 
     private func saveLegacyArchive(

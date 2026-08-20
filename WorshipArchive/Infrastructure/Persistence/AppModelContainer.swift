@@ -57,10 +57,73 @@ enum AppModelContainer {
             )
         }
 
+        if syncsWithCloudKit, !inMemory {
+            try createCloudMigrationBackupIfNeeded(
+                storeURL: configuration.url
+            )
+        }
+
         return try ModelContainer(
             for: schema,
             configurations: [configuration]
         )
+    }
+
+    static func cloudMigrationBackupURL(for storeURL: URL) -> URL {
+        storeURL.deletingLastPathComponent()
+            .appending(
+                path: "WorshipArchive-CloudMigrationBackup-v1",
+                directoryHint: .isDirectory
+            )
+    }
+
+    private static func createCloudMigrationBackupIfNeeded(
+        storeURL: URL
+    ) throws {
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: storeURL.path) else { return }
+
+        let backupURL = cloudMigrationBackupURL(for: storeURL)
+        guard !fileManager.fileExists(atPath: backupURL.path) else { return }
+
+        let temporaryBackupURL = backupURL
+            .deletingLastPathComponent()
+            .appending(
+                path: "WorshipArchive-CloudMigrationBackup-v1-\(UUID().uuidString).partial",
+                directoryHint: .isDirectory
+            )
+
+        do {
+            try fileManager.createDirectory(
+                at: temporaryBackupURL,
+                withIntermediateDirectories: false
+            )
+
+            for sourceURL in storeFiles(for: storeURL) where
+                fileManager.fileExists(atPath: sourceURL.path)
+            {
+                try fileManager.copyItem(
+                    at: sourceURL,
+                    to: temporaryBackupURL.appending(path: sourceURL.lastPathComponent)
+                )
+            }
+
+            try fileManager.moveItem(
+                at: temporaryBackupURL,
+                to: backupURL
+            )
+        } catch {
+            try? fileManager.removeItem(at: temporaryBackupURL)
+            throw error
+        }
+    }
+
+    private static func storeFiles(for storeURL: URL) -> [URL] {
+        [
+            storeURL,
+            URL(filePath: storeURL.path + "-wal"),
+            URL(filePath: storeURL.path + "-shm")
+        ]
     }
 }
 
