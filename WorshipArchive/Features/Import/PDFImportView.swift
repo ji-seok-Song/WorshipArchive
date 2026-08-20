@@ -14,12 +14,14 @@ struct PDFImportView: View {
 
     init(
         fileStore: any PDFFileStoring,
-        pdfAnalyzer: any PDFAnalyzing = LocalPDFAnalyzer()
+        pdfAnalyzer: any PDFAnalyzing = LocalPDFAnalyzer(),
+        uploadScheduler: (any PDFAssetUploadScheduling)? = nil
     ) {
         _coordinator = State(
             initialValue: PDFImportCoordinator(
                 fileStore: fileStore,
-                pdfAnalyzer: pdfAnalyzer
+                pdfAnalyzer: pdfAnalyzer,
+                uploadScheduler: uploadScheduler
             )
         )
     }

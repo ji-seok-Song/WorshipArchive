@@ -62,6 +62,8 @@ final class PDFImportCoordinator {
     @ObservationIgnored
     private let pdfAnalyzer: any PDFAnalyzing
     @ObservationIgnored
+    private weak var uploadScheduler: (any PDFAssetUploadScheduling)?
+    @ObservationIgnored
     private let importReservation: PDFImportReservation
     @ObservationIgnored
     private var operationID: UUID?
@@ -77,11 +79,13 @@ final class PDFImportCoordinator {
     init(
         fileStore: any PDFFileStoring,
         pdfAnalyzer: any PDFAnalyzing = LocalPDFAnalyzer(),
-        importReservation: PDFImportReservation = .shared
+        importReservation: PDFImportReservation = .shared,
+        uploadScheduler: (any PDFAssetUploadScheduling)? = nil
     ) {
         self.fileStore = fileStore
         self.pdfAnalyzer = pdfAnalyzer
         self.importReservation = importReservation
+        self.uploadScheduler = uploadScheduler
     }
 
     var canSave: Bool {
@@ -438,6 +442,7 @@ final class PDFImportCoordinator {
         phase = .saving
         let context = ModelContext(modelContainer)
         var committedPDF: StoredPDF?
+        var assetToUpload: LocalPDFAsset?
 
         do {
             try ensureDocumentIsNotDuplicate(
@@ -496,6 +501,13 @@ final class PDFImportCoordinator {
             }
 
             try context.save()
+            assetToUpload = LocalPDFAsset(
+                documentID: document.id,
+                storedFileName: storedPDF.storedFileName,
+                checksum: storedPDF.checksum,
+                fileSize: storedPDF.fileSize,
+                pageCount: storedPDF.pageCount
+            )
             await fileStore.discard(stagedPDF)
             await releaseReservation()
             self.stagedPDF = nil
@@ -503,7 +515,6 @@ final class PDFImportCoordinator {
             self.analysisResult = nil
             analysisProgress = nil
             phase = .completed
-            return true
         } catch {
             context.rollback()
 
@@ -526,6 +537,13 @@ final class PDFImportCoordinator {
                 .joined(separator: "\n")
             return false
         }
+
+        // The local database and original PDF are already committed here.
+        // Cloud enqueue/upload failures must never enter the rollback path above.
+        if let assetToUpload {
+            await uploadScheduler?.enqueueForUpload(assetToUpload)
+        }
+        return true
     }
 
     func cancel() async {

@@ -70,8 +70,37 @@ actor PDFAssetUploadWorker {
         try await journal.enqueueIfNeeded(asset)
     }
 
+    func enqueueIfLocalFileExists(_ asset: LocalPDFAsset) async throws {
+        do {
+            _ = try await localStore.storedFileURL(
+                named: asset.storedFileName,
+                expectedChecksum: asset.checksum
+            )
+            try await journal.enqueueIfNeeded(asset)
+        } catch PDFFileStoreError.storedFileMissing {
+            // Metadata received from another device is download-only until the
+            // user opens it. Do not create a false upload failure for it.
+        }
+    }
+
     func processDueJobs(at date: Date = Date()) async throws -> PDFAssetUploadRunSummary {
         let jobs = try await journal.dueJobs(at: date)
+        return try await process(jobs, at: date)
+    }
+
+    func processAllPendingJobs(at date: Date = Date()) async throws -> PDFAssetUploadRunSummary {
+        let jobs = (try await journal.snapshot()).pendingJobs
+        return try await process(jobs, at: date)
+    }
+
+    func snapshot() async throws -> PDFAssetJournalSnapshot {
+        try await journal.snapshot()
+    }
+
+    private func process(
+        _ jobs: [PDFAssetUploadJob],
+        at date: Date
+    ) async throws -> PDFAssetUploadRunSummary {
         guard !jobs.isEmpty else { return PDFAssetUploadRunSummary() }
 
         let availability = await remote.accountAvailability()

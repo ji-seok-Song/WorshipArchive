@@ -110,3 +110,8 @@ nonisolated protocol PDFAssetSyncJournal: Sendable {
     ) async throws
     func snapshot() async throws -> PDFAssetJournalSnapshot
 }
+
+@MainActor
+protocol PDFAssetUploadScheduling: AnyObject {
+    func enqueueForUpload(_ asset: LocalPDFAsset) async
+}

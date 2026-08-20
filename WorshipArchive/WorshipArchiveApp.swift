@@ -10,6 +10,8 @@ import SwiftData
 
 @main
 struct WorshipArchiveApp: App {
+    private let services = ArchiveServices.live
+
     var body: some Scene {
         WindowGroup {
             rootView
@@ -20,7 +22,10 @@ struct WorshipArchiveApp: App {
     private var rootView: some View {
         switch AppModelContainer.production {
         case .success(let modelContainer):
-            ContentView()
+            ContentView(
+                fileStore: services.fileStore,
+                syncCoordinator: services.syncCoordinator
+            )
                 .tint(ArchiveTheme.tint)
                 .modelContainer(modelContainer)
         case .failure(let error):

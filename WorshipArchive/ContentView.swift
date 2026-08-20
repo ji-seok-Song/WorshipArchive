@@ -14,7 +14,7 @@ private actor ArchiveFileMaintenanceGate {
 }
 
 struct ContentView: View {
-    @Environment(\.modelContext) private var modelContext
+    @Query(sort: \ArchiveDocument.importedAt) private var documents: [ArchiveDocument]
 
     @State private var selection: AppDestination = .home
     @State private var isPDFImportPresented = false
@@ -22,15 +22,18 @@ struct ContentView: View {
 
     private let fileStore: any PDFFileStoring
     private let pdfAnalyzer: any PDFAnalyzing
+    private let syncCoordinator: ArchiveSyncCoordinator?
     private let performsFileMaintenance: Bool
 
     init(
         fileStore: any PDFFileStoring = LocalPDFFileStore.live(),
         pdfAnalyzer: any PDFAnalyzing = LocalPDFAnalyzer(),
+        syncCoordinator: ArchiveSyncCoordinator? = nil,
         performsFileMaintenance: Bool = true
     ) {
         self.fileStore = fileStore
         self.pdfAnalyzer = pdfAnalyzer
+        self.syncCoordinator = syncCoordinator
         self.performsFileMaintenance = performsFileMaintenance
     }
 
@@ -71,7 +74,7 @@ struct ContentView: View {
             .tag(AppDestination.library)
 
             NavigationStack {
-                SettingsView()
+                SettingsView(syncCoordinator: syncCoordinator)
             }
             .tabItem {
                 Label(AppDestination.settings.title, systemImage: AppDestination.settings.systemImage)
@@ -82,11 +85,35 @@ struct ContentView: View {
         .sheet(isPresented: $isPDFImportPresented) {
             PDFImportView(
                 fileStore: fileStore,
-                pdfAnalyzer: pdfAnalyzer
+                pdfAnalyzer: pdfAnalyzer,
+                uploadScheduler: syncCoordinator
             )
         }
         .task {
             await performFileMaintenanceIfNeeded()
+        }
+        .task(id: syncAssets) {
+            await syncCoordinator?.reconcile(syncAssets)
+        }
+    }
+
+    private var syncAssets: [LocalPDFAsset] {
+        documents.compactMap { document in
+            guard
+                !document.storedFileName.isEmpty,
+                !document.checksum.isEmpty,
+                document.fileSize >= 0,
+                document.pageCount > 0
+            else {
+                return nil
+            }
+            return LocalPDFAsset(
+                documentID: document.id,
+                storedFileName: document.storedFileName,
+                checksum: document.checksum,
+                fileSize: document.fileSize,
+                pageCount: document.pageCount
+            )
         }
     }
 
@@ -98,12 +125,9 @@ struct ContentView: View {
         let cutoffDate = Date().addingTimeInterval(-24 * 60 * 60)
         try? await fileStore.removeStaleStagedFiles(olderThan: cutoffDate)
 
-        let documents: [ArchiveDocument]
-        do {
-            documents = try modelContext.fetch(FetchDescriptor<ArchiveDocument>())
-        } catch {
-            return
-        }
+        // CloudKit metadata may arrive after launch. Until that first import is
+        // complete, an apparently unreferenced PDF can still be valid cloud data.
+        guard syncCoordinator == nil else { return }
 
         let referencedFileNames = Set(documents.map(\.storedFileName))
         try? await fileStore.removeUnreferencedStoredFiles(
