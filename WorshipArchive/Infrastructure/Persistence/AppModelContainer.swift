@@ -2,6 +2,8 @@ import Foundation
 import SwiftData
 
 enum AppModelContainer {
+    static let cloudKitContainerIdentifier = "iCloud.com.jacky.WorshipArchive"
+
     static let schema = Schema([
         ArchiveDocument.self,
         PageAnalysis.self,
@@ -28,13 +30,32 @@ enum AppModelContainer {
         }
     }()
 
-    static func make(inMemory: Bool = false) throws -> ModelContainer {
-        let configuration = ModelConfiguration(
-            "WorshipArchive",
-            schema: schema,
-            isStoredInMemoryOnly: inMemory,
-            cloudKitDatabase: .none
-        )
+    static func make(
+        inMemory: Bool = false,
+        syncsWithCloudKit: Bool = true,
+        storageURL: URL? = nil
+    ) throws -> ModelContainer {
+        let cloudKitDatabase: ModelConfiguration.CloudKitDatabase =
+            inMemory || !syncsWithCloudKit
+            ? .none
+            : .private(cloudKitContainerIdentifier)
+
+        let configuration: ModelConfiguration
+        if let storageURL {
+            configuration = ModelConfiguration(
+                "WorshipArchive",
+                schema: schema,
+                url: storageURL,
+                cloudKitDatabase: cloudKitDatabase
+            )
+        } else {
+            configuration = ModelConfiguration(
+                "WorshipArchive",
+                schema: schema,
+                isStoredInMemoryOnly: inMemory,
+                cloudKitDatabase: cloudKitDatabase
+            )
+        }
 
         return try ModelContainer(
             for: schema,
