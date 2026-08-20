@@ -1,14 +1,10 @@
 import Foundation
 
-protocol PDFFileStoring: Sendable {
+protocol PDFFileStoring: StoredPDFAccessing {
     func stagePDF(from sourceURL: URL) async throws -> StagedPDF
     func stagedFileURL(for stagedPDF: StagedPDF) async throws -> URL
     func commit(_ stagedPDF: StagedPDF) async throws -> StoredPDF
     func discard(_ stagedPDF: StagedPDF) async
-    func storedFileURL(
-        named storedFileName: String,
-        expectedChecksum: String
-    ) async throws -> URL
     func removeStoredFile(named storedFileName: String) async throws
     func removeStaleStagedFiles(olderThan cutoffDate: Date) async throws
     func removeUnreferencedStoredFiles(

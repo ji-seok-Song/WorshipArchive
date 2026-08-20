@@ -2,13 +2,21 @@ import SwiftUI
 import SwiftData
 
 struct LibraryView: View {
+    @Environment(\.modelContext) private var modelContext
     @Query(sort: \Song.title) private var songs: [Song]
     @Query(sort: \ArchiveDocument.importedAt, order: .reverse) private var documents: [ArchiveDocument]
     @State private var mode: LibraryMode = .songs
+    @State private var showsFavoritesOnly = false
+    @State private var favoriteSaveErrorMessage: String?
 
+    let fileAccess: any StoredPDFAccessing
     let addPDF: () -> Void
 
-    init(addPDF: @escaping () -> Void = {}) {
+    init(
+        fileAccess: any StoredPDFAccessing = LocalPDFFileStore.live(),
+        addPDF: @escaping () -> Void = {}
+    ) {
+        self.fileAccess = fileAccess
         self.addPDF = addPDF
     }
 
@@ -22,6 +30,24 @@ struct LibraryView: View {
             .pickerStyle(.segmented)
             .frame(maxWidth: 420)
             .padding(.horizontal)
+
+            if mode == .songs, !songs.isEmpty {
+                HStack {
+                    Toggle(isOn: $showsFavoritesOnly) {
+                        Label("즐겨찾기만", systemImage: "heart.fill")
+                    }
+                    .toggleStyle(.button)
+                    .tint(ArchiveTheme.accent)
+
+                    Spacer()
+
+                    Text("\(displayedSongs.count)곡")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: 620)
+                .padding(.horizontal)
+            }
 
             ScrollView {
                 libraryContent
@@ -39,6 +65,14 @@ struct LibraryView: View {
                 }
             }
         }
+        .alert(
+            "즐겨찾기를 저장하지 못했어요",
+            isPresented: favoriteErrorIsPresented
+        ) {
+            Button("확인", role: .cancel) {}
+        } message: {
+            Text(favoriteSaveErrorMessage ?? "잠시 후 다시 시도해 주세요.")
+        }
     }
 
     @ViewBuilder
@@ -47,14 +81,25 @@ struct LibraryView: View {
         case .songs:
             if songs.isEmpty {
                 emptyState
+            } else if displayedSongs.isEmpty {
+                ArchiveEmptyState(
+                    systemImage: "heart",
+                    title: "즐겨찾기한 곡이 없어요",
+                    message: "자주 보는 곡의 하트를 눌러 이곳에 모아 보세요."
+                )
             } else {
                 LazyVStack(spacing: 12) {
-                    ForEach(songs, id: \.id) { song in
-                        LibraryItemRow(
+                    ForEach(displayedSongs, id: \.id) { song in
+                        SongLibraryRow(
                             title: song.title,
                             subtitle: keySummary(for: song),
-                            systemImage: "music.note"
-                        )
+                            isFavorite: song.isFavorite,
+                            toggleFavorite: {
+                                toggleFavorite(for: song)
+                            }
+                        ) {
+                            SongDetailView(song: song, fileAccess: fileAccess)
+                        }
                     }
                 }
             }
@@ -64,15 +109,42 @@ struct LibraryView: View {
             } else {
                 LazyVStack(spacing: 12) {
                     ForEach(documents, id: \.id) { document in
-                        LibraryItemRow(
-                            title: document.originalFileName,
-                            subtitle: "\(document.pageCount)페이지",
-                            systemImage: "doc.richtext"
-                        )
+                        NavigationLink {
+                            PDFViewerView(
+                                document: document,
+                                sheet: nil,
+                                fileAccess: fileAccess
+                            )
+                        } label: {
+                            LibraryItemRow(
+                                title: document.originalFileName,
+                                subtitle: "\(document.pageCount)페이지",
+                                systemImage: "doc.richtext"
+                            )
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
             }
         }
+    }
+
+    private var displayedSongs: [Song] {
+        SongSearchMatcher.filter(
+            songs,
+            using: SongSearchFilter(favoritesOnly: showsFavoritesOnly)
+        )
+    }
+
+    private var favoriteErrorIsPresented: Binding<Bool> {
+        Binding(
+            get: { favoriteSaveErrorMessage != nil },
+            set: { isPresented in
+                if !isPresented {
+                    favoriteSaveErrorMessage = nil
+                }
+            }
+        )
     }
 
     private var emptyState: some View {
@@ -95,6 +167,18 @@ struct LibraryView: View {
             return keyNames.joined(separator: " · ")
         default:
             return "\(keyNames[0]) 외 \(keyNames.count - 1)개 키"
+        }
+    }
+
+    private func toggleFavorite(for song: Song) {
+        let previousValue = song.isFavorite
+        song.isFavorite.toggle()
+
+        do {
+            try modelContext.save()
+        } catch {
+            song.isFavorite = previousValue
+            favoriteSaveErrorMessage = error.localizedDescription
         }
     }
 }
@@ -124,10 +208,17 @@ private struct LibraryItemRow: View {
             }
 
             Spacer()
+
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.tertiary)
+                .accessibilityHidden(true)
         }
         .padding(14)
         .background(ArchiveTheme.surface, in: .rect(cornerRadius: 16))
+        .contentShape(.rect)
         .accessibilityElement(children: .combine)
+        .accessibilityHint("원본 PDF를 엽니다")
     }
 }
 

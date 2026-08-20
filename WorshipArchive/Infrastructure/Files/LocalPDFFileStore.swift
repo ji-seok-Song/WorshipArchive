@@ -229,13 +229,16 @@ actor LocalPDFFileStore: PDFFileStoring {
     }
 
     private func sha256(of fileURL: URL) throws -> String {
+        try Task.checkCancellation()
         let fileHandle = try FileHandle(forReadingFrom: fileURL)
         defer { try? fileHandle.close() }
 
         var hasher = SHA256()
         while let data = try fileHandle.read(upToCount: 1_048_576), !data.isEmpty {
+            try Task.checkCancellation()
             hasher.update(data: data)
         }
+        try Task.checkCancellation()
 
         return hasher.finalize()
             .map { String(format: "%02x", $0) }

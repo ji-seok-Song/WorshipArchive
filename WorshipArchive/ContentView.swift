@@ -52,7 +52,7 @@ struct ContentView: View {
             .tag(AppDestination.home)
 
             NavigationStack {
-                SearchView()
+                SearchView(fileAccess: fileStore)
             }
             .tabItem {
                 Label(AppDestination.search.title, systemImage: AppDestination.search.systemImage)
@@ -60,7 +60,7 @@ struct ContentView: View {
             .tag(AppDestination.search)
 
             NavigationStack {
-                LibraryView {
+                LibraryView(fileAccess: fileStore) {
                     isPDFImportPresented = true
                 }
             }
