@@ -7,18 +7,31 @@ struct SearchView: View {
 
     @State private var query = ""
     @State private var selectedKey: MusicalKey?
+    @State private var usesPerformanceDateFilter = false
+    @State private var performanceStartDate: Date
+    @State private var performanceEndDate: Date
+    @State private var selectedServiceType = ""
     @State private var favoriteSaveErrorMessage: String?
 
     let fileAccess: any StoredPDFAccessing
 
     init(fileAccess: any StoredPDFAccessing = LocalPDFFileStore.live()) {
         self.fileAccess = fileAccess
+        let today = Date()
+        _performanceStartDate = State(
+            initialValue: Calendar.current.date(
+                byAdding: .month,
+                value: -1,
+                to: today
+            ) ?? today
+        )
+        _performanceEndDate = State(initialValue: today)
     }
 
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
-                keyFilter
+                filterPanel
 
                 if shouldShowResults, !filteredSongs.isEmpty {
                     LazyVStack(spacing: 12) {
@@ -56,7 +69,22 @@ struct SearchView: View {
     }
 
     private var filter: SongSearchFilter {
-        SongSearchFilter(query: query, musicalKey: selectedKey)
+        SongSearchFilter(
+            query: query,
+            musicalKey: selectedKey,
+            performanceDateRange: performanceDateRange,
+            serviceType: selectedServiceType
+        )
+    }
+
+    private var performanceDateRange: PerformanceDateRange? {
+        guard usesPerformanceDateFilter else { return nil }
+
+        return try? PerformanceDateRange(
+            startDate: performanceStartDate,
+            endDate: performanceEndDate,
+            calendar: .current
+        )
     }
 
     private var filteredSongs: [Song] {
@@ -64,7 +92,10 @@ struct SearchView: View {
     }
 
     private var shouldShowResults: Bool {
-        !filter.query.isEmpty || selectedKey != nil
+        !filter.query.isEmpty
+            || selectedKey != nil
+            || usesPerformanceDateFilter
+            || !selectedServiceType.isEmpty
     }
 
     private var favoriteErrorIsPresented: Binding<Bool> {
@@ -78,44 +109,134 @@ struct SearchView: View {
         )
     }
 
-    private var keyFilter: some View {
-        HStack(spacing: 12) {
-            Menu {
-                Picker("키", selection: $selectedKey) {
-                    Text("모든 키")
-                        .tag(nil as MusicalKey?)
+    private var filterPanel: some View {
+        VStack(spacing: 14) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    keyMenu
+                    serviceTypeMenu
+                    Spacer(minLength: 0)
+                    resultCount
+                }
 
-                    ForEach(MusicalKey.allCases) { key in
-                        Text(key.displayName)
-                            .tag(key as MusicalKey?)
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 12) {
+                        keyMenu
+                        serviceTypeMenu
+                    }
+                    resultCount
+                }
+            }
+
+            Toggle(isOn: $usesPerformanceDateFilter) {
+                Label("연주 날짜로 찾기", systemImage: "calendar")
+            }
+
+            if usesPerformanceDateFilter {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 16) {
+                        startDatePicker
+                        endDatePicker
+                    }
+
+                    VStack(spacing: 12) {
+                        startDatePicker
+                        endDatePicker
                     }
                 }
-            } label: {
-                Label(
-                    selectedKey?.displayName ?? "모든 키",
-                    systemImage: "music.quarternote.3"
-                )
             }
-            .buttonStyle(.bordered)
-            .accessibilityLabel("키 필터")
-            .accessibilityValue(selectedKey?.displayName ?? "모든 키")
-
-            if selectedKey != nil {
-                Button("키 필터 지우기", systemImage: "xmark.circle.fill") {
-                    selectedKey = nil
-                }
-                .labelStyle(.iconOnly)
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-            }
-
-            Spacer()
 
             if shouldShowResults {
-                Text("\(filteredSongs.count)곡")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                Button("필터 초기화", systemImage: "arrow.counterclockwise") {
+                    resetFilters()
+                }
+                .font(.subheadline)
+                .frame(maxWidth: .infinity, alignment: .trailing)
             }
+        }
+        .padding(14)
+        .background(ArchiveTheme.surface, in: .rect(cornerRadius: 16))
+    }
+
+    private var keyMenu: some View {
+        Menu {
+            Picker("키", selection: $selectedKey) {
+                Text("모든 키")
+                    .tag(nil as MusicalKey?)
+
+                ForEach(MusicalKey.allCases) { key in
+                    Text(key.displayName)
+                        .tag(key as MusicalKey?)
+                }
+            }
+        } label: {
+            Label(
+                selectedKey?.displayName ?? "모든 키",
+                systemImage: "music.quarternote.3"
+            )
+        }
+        .buttonStyle(.bordered)
+        .accessibilityLabel("키 필터")
+        .accessibilityValue(selectedKey?.displayName ?? "모든 키")
+    }
+
+    private var serviceTypeMenu: some View {
+        Menu {
+            Picker("예배 종류", selection: $selectedServiceType) {
+                Text("모든 예배")
+                    .tag("")
+
+                ForEach(availableServiceTypes, id: \.self) { serviceType in
+                    Text(serviceType)
+                        .tag(serviceType)
+                }
+            }
+        } label: {
+            Label(
+                selectedServiceType.isEmpty ? "모든 예배" : selectedServiceType,
+                systemImage: "person.2"
+            )
+        }
+        .buttonStyle(.bordered)
+        .accessibilityLabel("예배 종류 필터")
+        .accessibilityValue(selectedServiceType.isEmpty ? "모든 예배" : selectedServiceType)
+        .disabled(availableServiceTypes.isEmpty)
+    }
+
+    private var resultCount: some View {
+        Text(shouldShowResults ? "\(filteredSongs.count)곡" : "전체 \(songs.count)곡")
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+    }
+
+    private var startDatePicker: some View {
+        DatePicker(
+            "시작",
+            selection: $performanceStartDate,
+            in: ...performanceEndDate,
+            displayedComponents: .date
+        )
+    }
+
+    private var endDatePicker: some View {
+        DatePicker(
+            "종료",
+            selection: $performanceEndDate,
+            in: performanceStartDate...,
+            displayedComponents: .date
+        )
+    }
+
+    private var availableServiceTypes: [String] {
+        Set(
+            songs.flatMap { song in
+                (song.performanceRecords ?? []).compactMap { record in
+                    let value = record.serviceType.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return value.isEmpty ? nil : value
+                }
+            }
+        ).sorted { lhs, rhs in
+            lhs.localizedStandardCompare(rhs) == .orderedAscending
         }
     }
 
@@ -133,6 +254,10 @@ struct SearchView: View {
 
     private var emptyResultMessage: String {
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if usesPerformanceDateFilter || !selectedServiceType.isEmpty {
+            return "선택한 연주 기록 조건과 일치하는 악보가 없어요."
+        }
 
         switch (trimmedQuery.isEmpty, selectedKey) {
         case (false, let key?):
@@ -171,6 +296,21 @@ struct SearchView: View {
             song.isFavorite = previousValue
             favoriteSaveErrorMessage = error.localizedDescription
         }
+    }
+
+    private func resetFilters() {
+        query = ""
+        selectedKey = nil
+        usesPerformanceDateFilter = false
+        selectedServiceType = ""
+
+        let today = Date()
+        performanceStartDate = Calendar.current.date(
+            byAdding: .month,
+            value: -1,
+            to: today
+        ) ?? today
+        performanceEndDate = today
     }
 }
 

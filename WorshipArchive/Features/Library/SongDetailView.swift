@@ -8,6 +8,9 @@ struct SongDetailView: View {
     let fileAccess: any StoredPDFAccessing
 
     @State private var favoriteSaveErrorMessage: String?
+    @State private var deleteRecordErrorMessage: String?
+    @State private var showsPerformanceRecordForm = false
+    @State private var recordPendingDeletion: PerformanceRecord?
 
     var body: some View {
         List {
@@ -37,6 +40,40 @@ struct SongDetailView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
+                }
+            }
+
+            Section {
+                if sortedPerformanceRecords.isEmpty {
+                    ContentUnavailableView(
+                        "예배 기록이 없어요",
+                        systemImage: "calendar.badge.plus",
+                        description: Text("이 곡을 연주한 날짜와 예배 정보를 남겨 보세요.")
+                    )
+                } else {
+                    ForEach(sortedPerformanceRecords, id: \.id) { record in
+                        PerformanceRecordRow(record: record)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button("삭제", systemImage: "trash", role: .destructive) {
+                                    recordPendingDeletion = record
+                                }
+                            }
+                            .contextMenu {
+                                Button("기록 삭제", systemImage: "trash", role: .destructive) {
+                                    recordPendingDeletion = record
+                                }
+                            }
+                    }
+                }
+            } header: {
+                HStack {
+                    Text("예배 기록")
+                    Spacer()
+                    Button("기록 추가", systemImage: "plus") {
+                        showsPerformanceRecordForm = true
+                    }
+                    .font(.subheadline)
+                    .textCase(nil)
                 }
             }
 
@@ -75,6 +112,32 @@ struct SongDetailView: View {
         } message: {
             Text(favoriteSaveErrorMessage ?? "잠시 후 다시 시도해 주세요.")
         }
+        .alert(
+            "예배 기록을 삭제하지 못했어요",
+            isPresented: deleteRecordErrorIsPresented
+        ) {
+            Button("확인", role: .cancel) {}
+        } message: {
+            Text(deleteRecordErrorMessage ?? "잠시 후 다시 시도해 주세요.")
+        }
+        .confirmationDialog(
+            "예배 기록을 삭제할까요?",
+            isPresented: deleteConfirmationIsPresented,
+            titleVisibility: .visible,
+            presenting: recordPendingDeletion
+        ) { record in
+            Button("삭제", role: .destructive) {
+                delete(record)
+            }
+            Button("취소", role: .cancel) {}
+        } message: { record in
+            Text("\(record.performedAt.formatted(date: .abbreviated, time: .omitted)) · \(record.serviceType)")
+        }
+        .sheet(isPresented: $showsPerformanceRecordForm) {
+            NavigationStack {
+                PerformanceRecordFormView(song: song)
+            }
+        }
     }
 
     private var sortedSheets: [SongSheet] {
@@ -91,12 +154,43 @@ struct SongDetailView: View {
         }
     }
 
+    private var sortedPerformanceRecords: [PerformanceRecord] {
+        (song.performanceRecords ?? []).sorted { lhs, rhs in
+            if lhs.performedAt != rhs.performedAt {
+                return lhs.performedAt > rhs.performedAt
+            }
+            return lhs.id.uuidString < rhs.id.uuidString
+        }
+    }
+
     private var favoriteErrorIsPresented: Binding<Bool> {
         Binding(
             get: { favoriteSaveErrorMessage != nil },
             set: { isPresented in
                 if !isPresented {
                     favoriteSaveErrorMessage = nil
+                }
+            }
+        )
+    }
+
+    private var deleteRecordErrorIsPresented: Binding<Bool> {
+        Binding(
+            get: { deleteRecordErrorMessage != nil },
+            set: { isPresented in
+                if !isPresented {
+                    deleteRecordErrorMessage = nil
+                }
+            }
+        )
+    }
+
+    private var deleteConfirmationIsPresented: Binding<Bool> {
+        Binding(
+            get: { recordPendingDeletion != nil },
+            set: { isPresented in
+                if !isPresented {
+                    recordPendingDeletion = nil
                 }
             }
         )
@@ -113,7 +207,63 @@ struct SongDetailView: View {
             favoriteSaveErrorMessage = error.localizedDescription
         }
     }
+
+    private func delete(_ record: PerformanceRecord) {
+        do {
+            try PerformanceRecordPersistence.delete(record, in: modelContext)
+            recordPendingDeletion = nil
+        } catch {
+            recordPendingDeletion = nil
+            deleteRecordErrorMessage = error.localizedDescription
+        }
+    }
 }
+
+private struct PerformanceRecordRow: View {
+    let record: PerformanceRecord
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(record.serviceType)
+                    .font(.headline)
+
+                Spacer()
+
+                Text(record.performedAt, format: .dateTime.year().month().day())
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            if !details.isEmpty {
+                Text(details.joined(separator: " · "))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            if !record.notes.isEmpty {
+                Text(record.notes)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityHint("쓸어 넘기거나 길게 눌러 삭제할 수 있습니다")
+    }
+
+    private var details: [String] {
+        var values: [String] = []
+        if let musicalKey = record.musicalKey {
+            values.append(musicalKey.displayName)
+        }
+        if !record.leader.isEmpty {
+            values.append("인도 \(record.leader)")
+        }
+        return values
+    }
+}
+
 private struct SongSheetRow: View {
     let sheet: SongSheet
     let document: ArchiveDocument
