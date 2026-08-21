@@ -115,6 +115,16 @@ actor LocalPDFAnalyzer: PDFAnalyzing {
                         error: error
                     )
                 } else {
+                    let fullPageTitleCandidate = titleCandidate(
+                        from: recognizedText.lines,
+                        fallbackText: text
+                    )
+                    let focusedTitleCandidate: TitleCandidate?
+                    if (fullPageTitleCandidate?.confidence ?? 0) < 0.65 {
+                        focusedTitleCandidate = try await recognizeFocusedTitle(on: page)
+                    } else {
+                        focusedTitleCandidate = nil
+                    }
                     analyzedPages[seed.pageIndex] = AnalyzedPage(
                         pageIndex: seed.pageIndex,
                         text: text,
@@ -122,10 +132,7 @@ actor LocalPDFAnalyzer: PDFAnalyzing {
                         status: .recognized,
                         confidence: min(max(recognizedText.confidence, 0), 1),
                         errorMessage: nil,
-                        titleCandidate: titleCandidate(
-                            from: recognizedText.lines,
-                            fallbackText: text
-                        )
+                        titleCandidate: focusedTitleCandidate ?? fullPageTitleCandidate
                     )
                 }
             } catch is CancellationError {
@@ -208,23 +215,67 @@ actor LocalPDFAnalyzer: PDFAnalyzing {
 
     private func titleCandidate(
         from lines: [RecognizedTextLine],
-        fallbackText: String
+        fallbackText: String,
+        isFocusedTitleRegion: Bool = false
     ) -> TitleCandidate? {
-        let heights = lines.map { $0.boundingBox.height }.sorted()
-        let medianHeight = heights.isEmpty ? 0 : heights[heights.count / 2]
-        if let line = lines.first(where: { line in
-            let isVisuallyProminent = lines.count == 1
-                || line.boundingBox.height >= medianHeight * 1.2
-            return line.boundingBox.maxY >= 0.65
-                && isVisuallyProminent
+        let plausibleLines = lines.filter { line in
+            let minimumY = isFocusedTitleRegion ? 0.3 : 0.65
+            return line.boundingBox.maxY >= minimumY
                 && isPlausibleTitle(line.text)
+                && !isScoreAnnotation(line.text)
+        }
+        let heights = plausibleLines.map { $0.boundingBox.height }.sorted()
+        let medianHeight = heights.isEmpty ? 0 : heights[heights.count / 2]
+        let maximumHeight = heights.last ?? 0
+
+        let rankedLines = plausibleLines.sorted { lhs, rhs in
+            titleLineScore(lhs, maximumHeight: maximumHeight)
+                > titleLineScore(rhs, maximumHeight: maximumHeight)
+        }
+        if let line = rankedLines.first(where: { line in
+            plausibleLines.count == 1
+                || line.boundingBox.height >= medianHeight * 1.15
+                || line.boundingBox.height >= maximumHeight * 0.8
         }) {
+            let confidence = isFocusedTitleRegion
+                ? max(line.confidence, 0.78)
+                : line.confidence
             return TitleCandidate(
-                text: line.text.trimmingCharacters(in: .whitespacesAndNewlines),
-                confidence: min(max(line.confidence, 0), 1)
+                text: cleanedTitle(line.text),
+                confidence: min(max(confidence, 0), 1)
             )
         }
         return titleCandidate(from: fallbackText, confidence: 0.62)
+    }
+
+    private func recognizeFocusedTitle(on page: PDFPage) async throws -> TitleCandidate? {
+        guard let image = renderTitleRegion(page: page) else { return nil }
+
+        do {
+            let recognizedTitle = try await textRecognizer.recognizeText(in: image)
+            try Task.checkCancellation()
+            return titleCandidate(
+                from: recognizedTitle.lines,
+                fallbackText: normalizedText(recognizedTitle.text),
+                isFocusedTitleRegion: true
+            )
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            return nil
+        }
+    }
+
+    private func titleLineScore(
+        _ line: RecognizedTextLine,
+        maximumHeight: CGFloat
+    ) -> Double {
+        let heightScore = maximumHeight > 0
+            ? Double(line.boundingBox.height / maximumHeight)
+            : 0
+        let centerDistance = min(abs(Double(line.boundingBox.midX) - 0.5) * 2, 1)
+        let centerScore = 1 - centerDistance
+        return heightScore * 0.65 + line.confidence * 0.2 + centerScore * 0.15
     }
 
     private func titleCandidate(
@@ -277,7 +328,7 @@ actor LocalPDFAnalyzer: PDFAnalyzing {
             if isPlausibleTitle(line),
                largestFontSize >= bodyFontSize + 1.5,
                largestFontSize >= bodyFontSize * 1.15 {
-                return TitleCandidate(text: line, confidence: 0.88)
+                return TitleCandidate(text: cleanedTitle(line), confidence: 0.88)
             }
 
             location = NSMaxRange(lineRange)
@@ -301,9 +352,29 @@ actor LocalPDFAnalyzer: PDFAnalyzing {
         }
 
         return TitleCandidate(
-            text: line.trimmingCharacters(in: .whitespacesAndNewlines),
+            text: cleanedTitle(line),
             confidence: confidence
         )
+    }
+
+    private func cleanedTitle(_ value: String) -> String {
+        let title = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard title.hasSuffix(")"), let opening = title.lastIndex(of: "(") else {
+            return title
+        }
+
+        let annotation = title[title.index(after: opening)..<title.index(before: title.endIndex)]
+            .lowercased()
+        let removableMarkers = [
+            "화음", "편곡", "악보", "version", "ver.", " ver", "key", "mr", "live"
+        ]
+        guard removableMarkers.contains(where: annotation.contains) else {
+            return title
+        }
+
+        let baseTitle = title[..<opening]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return baseTitle.isEmpty ? title : baseTitle
     }
 
     private func isPlausibleTitle(_ value: String) -> Bool {
@@ -321,6 +392,32 @@ actor LocalPDFAnalyzer: PDFAnalyzing {
         let looksLikeChord = compact.count <= 12
             && compact.unicodeScalars.allSatisfy(chordCharacters.contains)
         return !looksLikeChord
+    }
+
+    private func isScoreAnnotation(_ value: String) -> Bool {
+        let normalized = value
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .lowercased()
+            .replacingOccurrences(of: " ", with: "")
+
+        let creditMarkers = [
+            "wordsby", "musicby", "scoredby", "arrangedby",
+            "작사", "작곡", "편곡", "채보"
+        ]
+        if creditMarkers.contains(where: normalized.contains) {
+            return true
+        }
+
+        let sectionMarkers = [
+            "intro", "verse", "chorus", "bridge", "inter", "outro",
+            "prechorus", "keychange", "keyup", "d.s.", "d.c.", "fine"
+        ]
+        if sectionMarkers.contains(where: normalized.contains) {
+            return true
+        }
+
+        let separatorCount = normalized.filter { "-x>".contains($0) }.count
+        return normalized.count >= 8 && separatorCount >= 2
     }
 
     private func failedPage(
@@ -372,12 +469,60 @@ actor LocalPDFAnalyzer: PDFAnalyzing {
         context.setFillColor(CGColor(gray: 1, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: width, height: height))
         context.saveGState()
-        context.translateBy(x: 0, y: CGFloat(height))
         context.scaleBy(
             x: CGFloat(width) / bounds.width,
-            y: -CGFloat(height) / bounds.height
+            y: CGFloat(height) / bounds.height
         )
         context.translateBy(x: -bounds.minX, y: -bounds.minY)
+        page.draw(with: .mediaBox, to: context)
+        context.restoreGState()
+        return context.makeImage()
+    }
+
+    private func renderTitleRegion(page: PDFPage) -> CGImage? {
+        let bounds = page.bounds(for: .mediaBox)
+        guard
+            bounds.width.isFinite,
+            bounds.height.isFinite,
+            bounds.width > 0,
+            bounds.height > 0
+        else {
+            return nil
+        }
+
+        // Score sheets place the title in the shallow top band. Keeping staff
+        // lines and chord symbols out of this pass materially improves Korean OCR.
+        let titleRegionHeight = bounds.height * 0.11
+        let titleRegion = CGRect(
+            x: bounds.minX,
+            y: bounds.maxY - titleRegionHeight,
+            width: bounds.width,
+            height: titleRegionHeight
+        )
+        let longestSide = max(titleRegion.width, titleRegion.height)
+        let scale = min(6, 3000 / longestSide)
+        let width = max(Int(ceil(titleRegion.width * scale)), 1)
+        let height = max(Int(ceil(titleRegion.height * scale)), 1)
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            return nil
+        }
+
+        context.setFillColor(CGColor(gray: 1, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        context.saveGState()
+        context.scaleBy(
+            x: CGFloat(width) / titleRegion.width,
+            y: CGFloat(height) / titleRegion.height
+        )
+        context.translateBy(x: -titleRegion.minX, y: -titleRegion.minY)
         page.draw(with: .mediaBox, to: context)
         context.restoreGState()
         return context.makeImage()
