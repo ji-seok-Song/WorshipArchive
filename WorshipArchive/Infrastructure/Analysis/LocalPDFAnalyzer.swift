@@ -43,14 +43,22 @@ actor LocalPDFAnalyzer: PDFAnalyzing {
 
             if let page = document.page(at: pageIndex) {
                 let embeddedText = normalizedText(page.string ?? "")
+                let needsRecognition = needsTextRecognition(embeddedText)
+                let embeddedTitleCandidate = titleCandidate(
+                    from: page,
+                    fallbackText: embeddedText
+                )
+                let recognizedFocusedTitle = needsRecognition
+                    ? nil
+                    : try await recognizeFocusedTitle(on: page)
+                let focusedTitleCandidate = recognizedFocusedTitle.flatMap { candidate in
+                    candidate.confidence >= 0.65 ? candidate : nil
+                }
                 let seed = EmbeddedPageSeed(
                     pageIndex: pageIndex,
                     text: embeddedText,
-                    titleCandidate: titleCandidate(
-                        from: page,
-                        fallbackText: embeddedText
-                    ),
-                    needsRecognition: needsTextRecognition(embeddedText)
+                    titleCandidate: focusedTitleCandidate ?? embeddedTitleCandidate,
+                    needsRecognition: needsRecognition
                 )
                 seeds.append(seed)
 
@@ -119,11 +127,9 @@ actor LocalPDFAnalyzer: PDFAnalyzing {
                         from: recognizedText.lines,
                         fallbackText: text
                     )
-                    let focusedTitleCandidate: TitleCandidate?
-                    if (fullPageTitleCandidate?.confidence ?? 0) < 0.65 {
-                        focusedTitleCandidate = try await recognizeFocusedTitle(on: page)
-                    } else {
-                        focusedTitleCandidate = nil
+                    let recognizedFocusedTitle = try await recognizeFocusedTitle(on: page)
+                    let focusedTitleCandidate = recognizedFocusedTitle.flatMap { candidate in
+                        candidate.confidence >= 0.65 ? candidate : nil
                     }
                     analyzedPages[seed.pageIndex] = AnalyzedPage(
                         pageIndex: seed.pageIndex,
@@ -233,9 +239,12 @@ actor LocalPDFAnalyzer: PDFAnalyzing {
                 > titleLineScore(rhs, maximumHeight: maximumHeight)
         }
         if let line = rankedLines.first(where: { line in
-            plausibleLines.count == 1
+            let isProminent = plausibleLines.count == 1
                 || line.boundingBox.height >= medianHeight * 1.15
                 || line.boundingBox.height >= maximumHeight * 0.8
+            let isLargeEnoughForFocusedPass = !isFocusedTitleRegion
+                || line.boundingBox.height >= 0.11
+            return isProminent && isLargeEnoughForFocusedPass
         }) {
             let confidence = isFocusedTitleRegion
                 ? max(line.confidence, 0.78)
@@ -358,7 +367,25 @@ actor LocalPDFAnalyzer: PDFAnalyzing {
     }
 
     private func cleanedTitle(_ value: String) -> String {
-        let title = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        var title = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let firstHangulIndex = title.firstIndex(where: { character in
+            character.unicodeScalars.contains(where: { scalar in
+                (0xAC00...0xD7A3).contains(scalar.value)
+                    || (0x3131...0x318E).contains(scalar.value)
+            })
+        }), firstHangulIndex != title.startIndex {
+            let prefix = title[..<firstHangulIndex]
+            let latinOrSymbolCount = prefix.unicodeScalars.filter { scalar in
+                CharacterSet.alphanumerics.contains(scalar)
+                    || CharacterSet.punctuationCharacters.contains(scalar)
+            }.count
+            if prefix.count >= 4,
+               Double(latinOrSymbolCount) / Double(prefix.count) >= 0.65 {
+                title = String(title[firstHangulIndex...])
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+
         guard title.hasSuffix(")"), let opening = title.lastIndex(of: "(") else {
             return title
         }
@@ -388,10 +415,15 @@ actor LocalPDFAnalyzer: PDFAnalyzing {
             .replacingOccurrences(of: " ", with: "")
             .replacingOccurrences(of: "♭", with: "b")
             .replacingOccurrences(of: "♯", with: "#")
-        let chordCharacters = CharacterSet(charactersIn: "ABCDEFGabcdefg#b/0123456789msujdim()-")
-        let looksLikeChord = compact.count <= 12
+            .replacingOccurrences(of: "¾", with: "#")
+            .lowercased()
+        let chordCharacters = CharacterSet(charactersIn: "abcdefg#b/0123456789msujdimt()-*?♭♯")
+        let looksLikeChord = compact.count <= 40
             && compact.unicodeScalars.allSatisfy(chordCharacters.contains)
-        return !looksLikeChord
+        guard !looksLikeChord else { return false }
+
+        guard let first = text.first, !first.isNumber else { return false }
+        return true
     }
 
     private func isScoreAnnotation(_ value: String) -> Bool {
@@ -410,7 +442,9 @@ actor LocalPDFAnalyzer: PDFAnalyzing {
 
         let sectionMarkers = [
             "intro", "verse", "chorus", "bridge", "inter", "outro",
-            "prechorus", "keychange", "keyup", "d.s.", "d.c.", "fine"
+            "prechorus", "keychange", "keyup", "d.s.", "d.c.", "fine",
+            "마디", "파트", "번째", "부터", "패턴", "section", "solo", "rit",
+            "mute", "brake", "drum"
         ]
         if sectionMarkers.contains(where: normalized.contains) {
             return true

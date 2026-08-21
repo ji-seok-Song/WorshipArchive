@@ -23,7 +23,7 @@ final class LocalPDFAnalyzerTests: XCTestCase {
         XCTAssertEqual(result.suggestions.first?.endPageNumber, 1)
     }
 
-    func testEmbeddedTextPageDoesNotInvokeOCR() async throws {
+    func testEmbeddedTextPageUsesOnlyFocusedTitleOCR() async throws {
         let pdfURL = try PDFTestFixture.make(pages: [
             "은혜로다 주의 은혜 날 살리신 주님의 큰 사랑\n"
                 + "기쁨으로 주를 노래하며 영원히 찬양합니다"
@@ -41,7 +41,7 @@ final class LocalPDFAnalyzerTests: XCTestCase {
         )
 
         let recognitionCallCount = await recognizer.callCount()
-        XCTAssertEqual(recognitionCallCount, 0)
+        XCTAssertEqual(recognitionCallCount, 1)
         XCTAssertEqual(result.pages.count, 1)
         XCTAssertEqual(result.pages.first?.recognitionMethod, .embeddedText)
         XCTAssertEqual(result.pages.first?.status, .textExtracted)
@@ -73,7 +73,7 @@ final class LocalPDFAnalyzerTests: XCTestCase {
         )
 
         let recognitionCallCount = await recognizer.callCount()
-        XCTAssertEqual(recognitionCallCount, 1)
+        XCTAssertEqual(recognitionCallCount, 2)
         XCTAssertEqual(result.pages.first?.recognitionMethod, .vision)
         XCTAssertEqual(result.pages.first?.status, .recognized)
         XCTAssertEqual(result.pages.first?.text, "새 노래로 주를 찬양")

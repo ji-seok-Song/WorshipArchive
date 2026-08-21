@@ -14,6 +14,7 @@ nonisolated struct SongDraftSuggester: Sendable {
     ) -> [SongDraftSuggestion] {
         guard documentPageCount > 0 else { return [] }
 
+        let recurringMarks = recurringShortLatinMarks(in: pages)
         var starts: [(pageIndex: Int, title: String, confidence: Double)] = []
         var previousNormalizedTitle: String?
 
@@ -25,7 +26,12 @@ nonisolated struct SongDraftSuggester: Sendable {
             let title = candidate.text.trimmingCharacters(in: .whitespacesAndNewlines)
             let normalizedTitle = SearchTextNormalizer.normalize(title)
             guard !normalizedTitle.isEmpty else { continue }
+            guard !recurringMarks.contains(normalizedTitle) else { continue }
             guard normalizedTitle != previousNormalizedTitle else { continue }
+            guard strippingTrailingPageNumber(from: normalizedTitle)
+                    != previousNormalizedTitle else {
+                continue
+            }
 
             starts.append((
                 pageIndex: page.pageIndex,
@@ -55,6 +61,34 @@ nonisolated struct SongDraftSuggester: Sendable {
                 confidence: start.confidence
             )
         }
+    }
+
+    private func recurringShortLatinMarks(in pages: [AnalyzedPage]) -> Set<String> {
+        let candidates = pages.compactMap { page -> (normalized: String, original: String)? in
+            guard let title = page.titleCandidate?.text else { return nil }
+            let normalized = SearchTextNormalizer.normalize(title)
+            guard !normalized.isEmpty else { return nil }
+            return (normalized, title)
+        }
+        let counts = Dictionary(grouping: candidates, by: \.normalized)
+            .mapValues(\.count)
+
+        return Set(candidates.compactMap { candidate in
+            guard counts[candidate.normalized, default: 0] >= 2 else { return nil }
+            let compact = candidate.original.filter(\.isLetter)
+            guard (2...16).contains(compact.count) else { return nil }
+            guard compact.unicodeScalars.allSatisfy({ $0.isASCII }) else { return nil }
+            guard compact == compact.uppercased() else { return nil }
+            return candidate.normalized
+        })
+    }
+
+    private func strippingTrailingPageNumber(from value: String) -> String {
+        var characters = Array(value)
+        while characters.last?.isNumber == true {
+            characters.removeLast()
+        }
+        return String(characters)
     }
 
     private func fallbackSuggestion(
