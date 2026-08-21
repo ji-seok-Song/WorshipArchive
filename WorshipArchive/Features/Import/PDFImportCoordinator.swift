@@ -615,9 +615,11 @@ final class PDFImportCoordinator {
     private func songDraft(from suggestion: SongDraftSuggestion) -> SongDraft {
         SongDraft(
             title: suggestion.title,
+            musicalKey: suggestion.musicalKey,
             startPageNumber: suggestion.startPageNumber,
             endPageNumber: suggestion.endPageNumber,
-            suggestionConfidence: suggestion.confidence
+            suggestionConfidence: suggestion.confidence,
+            keySuggestionConfidence: suggestion.keyConfidence
         )
     }
 

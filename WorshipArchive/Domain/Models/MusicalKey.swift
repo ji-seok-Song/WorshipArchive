@@ -26,6 +26,11 @@ enum MusicalKey: String, Codable, CaseIterable, Identifiable, Sendable {
     case bFlatMinor
     case bMinor
 
+    static let allCases: [MusicalKey] = [
+        .cMajor, .cSharpMajor, .dMajor, .eFlatMajor, .eMajor, .fMajor,
+        .fSharpMajor, .gMajor, .aFlatMajor, .aMajor, .bFlatMajor, .bMajor
+    ]
+
     var id: Self { self }
 
     var displayName: String {
@@ -42,18 +47,35 @@ enum MusicalKey: String, Codable, CaseIterable, Identifiable, Sendable {
         case .aMajor: "A"
         case .bFlatMajor: "B♭"
         case .bMajor: "B"
-        case .cMinor: "Cm"
-        case .cSharpMinor: "C♯m/D♭m"
-        case .dMinor: "Dm"
-        case .eFlatMinor: "E♭m"
-        case .eMinor: "Em"
-        case .fMinor: "Fm"
-        case .fSharpMinor: "F♯m/G♭m"
-        case .gMinor: "Gm"
-        case .aFlatMinor: "A♭m"
-        case .aMinor: "Am"
-        case .bFlatMinor: "B♭m"
-        case .bMinor: "Bm"
+        case .cMinor: "C"
+        case .cSharpMinor: "C♯/D♭"
+        case .dMinor: "D"
+        case .eFlatMinor: "E♭"
+        case .eMinor: "E"
+        case .fMinor: "F"
+        case .fSharpMinor: "F♯/G♭"
+        case .gMinor: "G"
+        case .aFlatMinor: "A♭"
+        case .aMinor: "A"
+        case .bFlatMinor: "B♭"
+        case .bMinor: "B"
+        }
+    }
+
+    var pitchOnly: MusicalKey {
+        switch self {
+        case .cMajor, .cMinor: .cMajor
+        case .cSharpMajor, .cSharpMinor: .cSharpMajor
+        case .dMajor, .dMinor: .dMajor
+        case .eFlatMajor, .eFlatMinor: .eFlatMajor
+        case .eMajor, .eMinor: .eMajor
+        case .fMajor, .fMinor: .fMajor
+        case .fSharpMajor, .fSharpMinor: .fSharpMajor
+        case .gMajor, .gMinor: .gMajor
+        case .aFlatMajor, .aFlatMinor: .aFlatMajor
+        case .aMajor, .aMinor: .aMajor
+        case .bFlatMajor, .bFlatMinor: .bFlatMajor
+        case .bMajor, .bMinor: .bMajor
         }
     }
 }

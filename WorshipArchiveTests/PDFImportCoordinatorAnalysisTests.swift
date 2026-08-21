@@ -7,8 +7,10 @@ final class PDFImportCoordinatorAnalysisTests: XCTestCase {
     @MainActor
     func testAnalyzedImportPersistsPagesSongsAndSearchableText() async throws {
         let sourceURL = try PDFTestFixture.make(pages: [
-            "첫 번째 찬양\n주의 사랑을 영원히 노래하며 기쁨으로 예배합니다",
-            "두 번째 찬양\n온 마음을 다하여 주님의 이름을 높여 찬양합니다"
+            "첫 번째 찬양\nD D/F# G A Bm G A D\n"
+                + "주의 사랑을 영원히 노래하며 기쁨으로 예배합니다",
+            "두 번째 찬양\nE B C#m A E/G# F#m B E\n"
+                + "온 마음을 다하여 주님의 이름을 높여 찬양합니다"
         ])
         let rootDirectory = FileManager.default.temporaryDirectory
             .appending(path: "WorshipArchiveImportTest-\(UUID().uuidString)")
@@ -47,6 +49,7 @@ final class PDFImportCoordinatorAnalysisTests: XCTestCase {
         XCTAssertTrue(pages.allSatisfy { $0.recognitionMethod == .embeddedText })
         XCTAssertEqual(songs.count, 2)
         XCTAssertEqual(sheets.count, 2)
+        XCTAssertEqual(Set(sheets.compactMap(\.musicalKey)), Set([.dMajor, .eMajor]))
         XCTAssertTrue(songs.allSatisfy { !$0.lyricsText.isEmpty })
         XCTAssertTrue(sheets.allSatisfy { !$0.recognizedText.isEmpty })
     }

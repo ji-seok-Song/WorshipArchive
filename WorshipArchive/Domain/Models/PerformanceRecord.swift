@@ -30,7 +30,7 @@ final class PerformanceRecord {
     }
 
     var musicalKey: MusicalKey? {
-        get { MusicalKey(rawValue: keyRawValue) }
+        get { MusicalKey(rawValue: keyRawValue)?.pitchOnly }
         set { keyRawValue = newValue?.rawValue ?? "" }
     }
 }

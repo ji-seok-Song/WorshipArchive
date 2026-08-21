@@ -2,6 +2,7 @@ import Foundation
 
 nonisolated struct SongDraftSuggester: Sendable {
     let minimumConfidence: Double
+    private let keyDetector = ScoreKeyDetector()
 
     init(minimumConfidence: Double = 0.65) {
         self.minimumConfidence = minimumConfidence
@@ -15,7 +16,12 @@ nonisolated struct SongDraftSuggester: Sendable {
         guard documentPageCount > 0 else { return [] }
 
         let recurringMarks = recurringShortLatinMarks(in: pages)
-        var starts: [(pageIndex: Int, title: String, confidence: Double)] = []
+        var starts: [(
+            pageIndex: Int,
+            title: String,
+            confidence: Double,
+            keyCandidate: ScoreKeyCandidate?
+        )] = []
         var previousNormalizedTitle: String?
 
         for page in pages.sorted(by: { $0.pageIndex < $1.pageIndex }) {
@@ -36,7 +42,8 @@ nonisolated struct SongDraftSuggester: Sendable {
             starts.append((
                 pageIndex: page.pageIndex,
                 title: title,
-                confidence: min(max(candidate.confidence, 0), 1)
+                confidence: min(max(candidate.confidence, 0), 1),
+                keyCandidate: keyDetector.detect(in: page.text)
             ))
             previousNormalizedTitle = normalizedTitle
         }
@@ -58,7 +65,9 @@ nonisolated struct SongDraftSuggester: Sendable {
                 title: start.title,
                 startPageNumber: start.pageIndex + 1,
                 endPageNumber: max(start.pageIndex + 1, nextStartPageIndex),
-                confidence: start.confidence
+                confidence: start.confidence,
+                musicalKey: start.keyCandidate?.musicalKey,
+                keyConfidence: start.keyCandidate?.confidence
             )
         }
     }

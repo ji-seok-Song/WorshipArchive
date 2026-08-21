@@ -7,6 +7,7 @@ struct SongDraft: Identifiable, Equatable, Sendable {
     var startPageNumber: Int
     var endPageNumber: Int
     var suggestionConfidence: Double?
+    var keySuggestionConfidence: Double?
 
     init(
         id: UUID = UUID(),
@@ -14,7 +15,8 @@ struct SongDraft: Identifiable, Equatable, Sendable {
         musicalKey: MusicalKey? = nil,
         startPageNumber: Int,
         endPageNumber: Int,
-        suggestionConfidence: Double? = nil
+        suggestionConfidence: Double? = nil,
+        keySuggestionConfidence: Double? = nil
     ) {
         self.id = id
         self.title = title
@@ -22,6 +24,7 @@ struct SongDraft: Identifiable, Equatable, Sendable {
         self.startPageNumber = startPageNumber
         self.endPageNumber = endPageNumber
         self.suggestionConfidence = suggestionConfidence
+        self.keySuggestionConfidence = keySuggestionConfidence
     }
 }
 

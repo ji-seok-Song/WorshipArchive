@@ -319,6 +319,23 @@ private struct PDFImportReviewForm: View {
                                     .tag(musicalKey as MusicalKey?)
                             }
                         }
+                        .onChange(of: draft.musicalKey) { _, _ in
+                            draft.keySuggestionConfidence = nil
+                        }
+
+                        if let confidence = draft.keySuggestionConfidence,
+                           let musicalKey = draft.musicalKey {
+                            Label(
+                                confidence < 0.75
+                                    ? "악보에서 \(musicalKey.displayName) 키로 추정·확인 필요"
+                                    : "악보에서 \(musicalKey.displayName) 키로 자동 감지",
+                                systemImage: confidence < 0.75
+                                    ? "questionmark.circle"
+                                    : "music.note"
+                            )
+                            .font(.caption)
+                            .foregroundStyle(confidence < 0.75 ? .orange : .secondary)
+                        }
 
                         pageInput(
                             title: "시작 페이지",

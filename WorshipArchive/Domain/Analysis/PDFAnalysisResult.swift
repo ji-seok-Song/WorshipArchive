@@ -29,4 +29,22 @@ nonisolated struct SongDraftSuggestion: Equatable, Sendable {
     let startPageNumber: Int
     let endPageNumber: Int
     let confidence: Double
+    let musicalKey: MusicalKey?
+    let keyConfidence: Double?
+
+    init(
+        title: String,
+        startPageNumber: Int,
+        endPageNumber: Int,
+        confidence: Double,
+        musicalKey: MusicalKey? = nil,
+        keyConfidence: Double? = nil
+    ) {
+        self.title = title
+        self.startPageNumber = startPageNumber
+        self.endPageNumber = endPageNumber
+        self.confidence = confidence
+        self.musicalKey = musicalKey
+        self.keyConfidence = keyConfidence
+    }
 }
