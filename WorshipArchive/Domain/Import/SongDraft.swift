@@ -3,6 +3,7 @@ import Foundation
 struct SongDraft: Identifiable, Equatable, Sendable {
     let id: UUID
     var title: String
+    var existingSongID: UUID?
     var musicalKey: MusicalKey?
     var keySignatureChoice: KeySignatureChoice
     var startPageNumber: Int
@@ -13,6 +14,7 @@ struct SongDraft: Identifiable, Equatable, Sendable {
     init(
         id: UUID = UUID(),
         title: String,
+        existingSongID: UUID? = nil,
         musicalKey: MusicalKey? = nil,
         keySignatureChoice: KeySignatureChoice = .unspecified,
         startPageNumber: Int,
@@ -22,6 +24,7 @@ struct SongDraft: Identifiable, Equatable, Sendable {
     ) {
         self.id = id
         self.title = title
+        self.existingSongID = existingSongID
         self.musicalKey = musicalKey
         self.keySignatureChoice = keySignatureChoice
         self.startPageNumber = startPageNumber
@@ -33,6 +36,7 @@ struct SongDraft: Identifiable, Equatable, Sendable {
 
 struct ValidatedSongDraft {
     let title: String
+    let existingSongID: UUID?
     let musicalKey: MusicalKey?
     let pageRange: SheetPageRange
 }
@@ -72,6 +76,7 @@ enum SongDraftValidator {
 
             return ValidatedSongDraft(
                 title: title,
+                existingSongID: draft.existingSongID,
                 musicalKey: draft.musicalKey,
                 pageRange: pageRange
             )
@@ -103,6 +108,7 @@ enum PDFImportValidationError: LocalizedError, Equatable {
     case duplicateImportInProgress
     case missingStagedPDF
     case incompleteAnalysis
+    case selectedSongMissing
 
     var errorDescription: String? {
         switch self {
@@ -120,6 +126,8 @@ enum PDFImportValidationError: LocalizedError, Equatable {
             "저장할 PDF를 찾을 수 없습니다. 다시 선택해 주세요."
         case .incompleteAnalysis:
             "페이지 분석 결과가 완전하지 않습니다. 다시 분석해 주세요."
+        case .selectedSongMissing:
+            "묶으려던 기존 곡을 찾을 수 없습니다. 다시 선택해 주세요."
         }
     }
 }

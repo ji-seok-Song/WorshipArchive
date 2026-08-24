@@ -47,6 +47,31 @@ enum ArchiveLibraryEditing {
         try context.save()
     }
 
+    static func mergeSong(
+        _ source: Song,
+        into target: Song,
+        in context: ModelContext
+    ) throws {
+        guard source.id != target.id else { throw ArchiveEditingError.sameSong }
+
+        let movedSheets = source.sheets ?? []
+        let movedRecords = source.performanceRecords ?? []
+        let combinedSheets = (target.sheets ?? []) + movedSheets
+
+        for sheet in movedSheets {
+            sheet.song = target
+        }
+        for record in movedRecords {
+            record.song = target
+        }
+
+        target.isFavorite = target.isFavorite || source.isFavorite
+        target.notes = combinedText(target.notes, source.notes)
+        refreshSearchableLyrics(for: target, using: combinedSheets)
+        context.delete(source)
+        try context.save()
+    }
+
     static func deleteDocument(
         _ document: ArchiveDocument,
         in context: ModelContext
@@ -95,12 +120,28 @@ enum ArchiveLibraryEditing {
             .filter { !$0.isEmpty }
             .joined(separator: "\n\n")
     }
+
+    private static func combinedText(_ first: String, _ second: String) -> String {
+        [first, second]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .reduce(into: [String]()) { values, value in
+                if !values.contains(value) { values.append(value) }
+            }
+            .joined(separator: "\n\n")
+    }
 }
 
 enum ArchiveEditingError: LocalizedError, Equatable {
     case emptyTitle
+    case sameSong
 
     var errorDescription: String? {
-        "곡 제목을 입력해 주세요."
+        switch self {
+        case .emptyTitle:
+            "곡 제목을 입력해 주세요."
+        case .sameSong:
+            "같은 곡끼리는 병합할 수 없습니다."
+        }
     }
 }

@@ -13,6 +13,7 @@ struct SongDetailView: View {
     @State private var showsPerformanceRecordForm = false
     @State private var recordPendingDeletion: PerformanceRecord?
     @State private var showsSongEditor = false
+    @State private var showsSongMergeForm = false
     @State private var sheetBeingEdited: SongSheet?
     @State private var sheetPendingDeletion: SongSheet?
     @State private var showsSongDeleteConfirmation = false
@@ -44,6 +45,9 @@ struct SongDetailView: View {
                 Menu {
                     Button("곡 정보 수정", systemImage: "pencil") {
                         showsSongEditor = true
+                    }
+                    Button("다른 곡과 묶기", systemImage: "arrow.triangle.merge") {
+                        showsSongMergeForm = true
                     }
                     Button("곡 삭제", systemImage: "trash", role: .destructive) {
                         showsSongDeleteConfirmation = true
@@ -125,6 +129,13 @@ struct SongDetailView: View {
         .sheet(isPresented: $showsSongEditor) {
             NavigationStack {
                 SongEditForm(song: song)
+            }
+        }
+        .sheet(isPresented: $showsSongMergeForm) {
+            NavigationStack {
+                SongMergeForm(sourceSong: song) {
+                    dismiss()
+                }
             }
         }
         .sheet(item: $sheetBeingEdited) { sheet in
@@ -371,6 +382,88 @@ private struct PerformanceRecordsSection: View {
                     .font(.subheadline)
                     .textCase(nil)
             }
+        }
+    }
+}
+
+private struct SongMergeForm: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
+    @Query(sort: \Song.title) private var songs: [Song]
+
+    let sourceSong: Song
+    let merged: () -> Void
+    @State private var targetSongID: UUID?
+    @State private var errorMessage: String?
+
+    private var targetSongs: [Song] {
+        songs.filter { $0.id != sourceSong.id }
+    }
+
+    var body: some View {
+        Form {
+            Section("현재 곡") {
+                LabeledContent("병합할 곡", value: sourceSong.title)
+                LabeledContent("연결된 악보", value: "\(sourceSong.sheets?.count ?? 0)개")
+            }
+
+            Section {
+                if targetSongs.isEmpty {
+                    Text("묶을 수 있는 다른 곡이 없습니다.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    Picker("기존 곡", selection: $targetSongID) {
+                        Text("선택해 주세요").tag(nil as UUID?)
+                        ForEach(targetSongs, id: \.id) { song in
+                            Text(song.title).tag(song.id as UUID?)
+                        }
+                    }
+                }
+            } header: {
+                Text("합칠 대상")
+            } footer: {
+                Text("현재 곡의 악보·예배 기록·메모가 선택한 곡으로 이동하고 현재 곡 항목은 삭제됩니다.")
+            }
+        }
+        .navigationTitle("동일한 곡 묶기")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("취소") { dismiss() }
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                Button("묶기", action: merge)
+                    .disabled(targetSongID == nil)
+            }
+        }
+        .alert(
+            "곡을 묶지 못했어요",
+            isPresented: Binding(
+                get: { errorMessage != nil },
+                set: { if !$0 { errorMessage = nil } }
+            )
+        ) {
+            Button("확인", role: .cancel) {}
+        } message: {
+            Text(errorMessage ?? "잠시 후 다시 시도해 주세요.")
+        }
+    }
+
+    private func merge() {
+        guard let targetSongID,
+              let target = targetSongs.first(where: { $0.id == targetSongID })
+        else { return }
+
+        do {
+            try ArchiveLibraryEditing.mergeSong(
+                sourceSong,
+                into: target,
+                in: modelContext
+            )
+            dismiss()
+            merged()
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 }

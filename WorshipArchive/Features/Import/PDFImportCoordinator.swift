@@ -482,12 +482,28 @@ final class PDFImportCoordinator {
             let pagesByIndex = Dictionary(
                 uniqueKeysWithValues: analysisResult.pages.map { ($0.pageIndex, $0) }
             )
+            let existingSongsByID = Dictionary(
+                uniqueKeysWithValues: try context.fetch(FetchDescriptor<Song>())
+                    .map { ($0.id, $0) }
+            )
             for draft in validatedDrafts {
                 let recognizedText = (draft.pageRange.startPageIndex...draft.pageRange.endPageIndex)
                     .compactMap { pagesByIndex[$0]?.text }
                     .filter { !$0.isEmpty }
                     .joined(separator: "\n\n")
-                let song = Song(title: draft.title, lyricsText: recognizedText)
+                let song: Song
+                if let existingSongID = draft.existingSongID {
+                    guard let existingSong = existingSongsByID[existingSongID] else {
+                        throw PDFImportValidationError.selectedSongMissing
+                    }
+                    song = existingSong
+                    song.lyricsText = [song.lyricsText, recognizedText]
+                        .filter { !$0.isEmpty }
+                        .joined(separator: "\n\n")
+                } else {
+                    song = Song(title: draft.title, lyricsText: recognizedText)
+                    context.insert(song)
+                }
                 let sheet = try SongSheet.create(
                     startPageIndex: draft.pageRange.startPageIndex,
                     endPageIndex: draft.pageRange.endPageIndex,
@@ -496,7 +512,6 @@ final class PDFImportCoordinator {
                     document: document,
                     song: song
                 )
-                context.insert(song)
                 context.insert(sheet)
             }
 

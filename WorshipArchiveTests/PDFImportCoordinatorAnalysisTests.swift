@@ -25,6 +25,10 @@ final class PDFImportCoordinatorAnalysisTests: XCTestCase {
             importReservation: PDFImportReservation()
         )
         let container = try AppModelContainer.make(inMemory: true)
+        let seedContext = ModelContext(container)
+        let existingSong = Song(title: "이미 저장된 찬양", lyricsText: "기존 가사")
+        seedContext.insert(existingSong)
+        try seedContext.save()
 
         await coordinator.stagePDF(from: sourceURL, in: container)
 
@@ -32,6 +36,7 @@ final class PDFImportCoordinatorAnalysisTests: XCTestCase {
         XCTAssertEqual(coordinator.analysisResult?.pages.count, 2)
         XCTAssertEqual(coordinator.drafts.count, 2)
         XCTAssertTrue(coordinator.canSave)
+        coordinator.drafts[0].existingSongID = existingSong.id
         let didSave = await coordinator.save(in: container)
         XCTAssertTrue(didSave)
 
@@ -47,6 +52,12 @@ final class PDFImportCoordinatorAnalysisTests: XCTestCase {
         XCTAssertTrue(pages.allSatisfy { $0.recognitionMethod == .embeddedText })
         XCTAssertEqual(songs.count, 2)
         XCTAssertEqual(sheets.count, 2)
+        let updatedExistingSong = try XCTUnwrap(
+            songs.first(where: { $0.id == existingSong.id })
+        )
+        XCTAssertEqual(updatedExistingSong.sheets?.count, 1)
+        XCTAssertTrue(updatedExistingSong.lyricsText.contains("기존 가사"))
+        XCTAssertTrue(updatedExistingSong.lyricsText.contains("주의 사랑"))
         XCTAssertTrue(songs.allSatisfy { !$0.lyricsText.isEmpty })
         XCTAssertTrue(sheets.allSatisfy { !$0.recognizedText.isEmpty })
     }

@@ -101,6 +101,56 @@ final class ArchiveLibraryEditingTests: XCTestCase {
     }
 
     @MainActor
+    func testMergingSongsMovesSheetsRecordsNotesAndFavorite() throws {
+        let container = try AppModelContainer.make(inMemory: true)
+        let context = ModelContext(container)
+        let document = makeDocument(name: "병합.pdf", pages: 2)
+        let target = Song(title: "대표 곡", notes: "대표 메모")
+        let source = Song(
+            title: "중복 곡",
+            notes: "추가 메모",
+            isFavorite: true
+        )
+        let targetSheet = try SongSheet.create(
+            startPageIndex: 0,
+            endPageIndex: 0,
+            recognizedText: "대표 가사",
+            document: document,
+            song: target
+        )
+        let sourceSheet = try SongSheet.create(
+            startPageIndex: 1,
+            endPageIndex: 1,
+            recognizedText: "추가 가사",
+            document: document,
+            song: source
+        )
+        let record = PerformanceRecord(
+            performedAt: Date(),
+            serviceType: "청년예배",
+            song: source
+        )
+        context.insert(document)
+        [target, source].forEach(context.insert)
+        [targetSheet, sourceSheet].forEach(context.insert)
+        context.insert(record)
+        try context.save()
+
+        try ArchiveLibraryEditing.mergeSong(source, into: target, in: context)
+
+        XCTAssertEqual(try context.fetch(FetchDescriptor<Song>()).count, 1)
+        XCTAssertEqual(target.sheets?.count, 2)
+        XCTAssertEqual(target.performanceRecords?.count, 1)
+        XCTAssertTrue(target.isFavorite)
+        XCTAssertTrue(target.notes.contains("대표 메모"))
+        XCTAssertTrue(target.notes.contains("추가 메모"))
+        XCTAssertTrue(target.lyricsText.contains("대표 가사"))
+        XCTAssertTrue(target.lyricsText.contains("추가 가사"))
+        XCTAssertEqual(sourceSheet.song?.id, target.id)
+        XCTAssertEqual(record.song?.id, target.id)
+    }
+
+    @MainActor
     private func makeDocument(name: String, pages: Int) -> ArchiveDocument {
         ArchiveDocument(
             originalFileName: name,

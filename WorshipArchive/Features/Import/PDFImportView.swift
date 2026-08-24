@@ -252,6 +252,7 @@ struct PDFImportView: View {
 }
 
 private struct PDFImportReviewForm: View {
+    @Query(sort: \Song.title) private var existingSongs: [Song]
     @Bindable var coordinator: PDFImportCoordinator
     let previewPDF: () -> Void
     let selectAnotherPDF: () -> Void
@@ -311,6 +312,19 @@ private struct PDFImportReviewForm: View {
                         }
 
                         TextField("곡 제목", text: $draft.title)
+
+                        Picker("같은 곡 묶기", selection: $draft.existingSongID) {
+                            Text("새 곡으로 저장").tag(nil as UUID?)
+                            ForEach(existingSongs, id: \.id) { song in
+                                Text(song.title).tag(song.id as UUID?)
+                            }
+                        }
+                        .onChange(of: draft.existingSongID) { _, songID in
+                            guard let songID,
+                                  let song = existingSongs.first(where: { $0.id == songID })
+                            else { return }
+                            draft.title = song.title
+                        }
 
                         Picker("조표", selection: $draft.keySignatureChoice) {
                             ForEach(KeySignatureChoice.allCases) { choice in
