@@ -312,6 +312,16 @@ private struct PDFImportReviewForm: View {
 
                         TextField("곡 제목", text: $draft.title)
 
+                        Picker("조표", selection: $draft.keySignatureChoice) {
+                            ForEach(KeySignatureChoice.allCases) { choice in
+                                Text(choice.displayName).tag(choice)
+                            }
+                        }
+                        .onChange(of: draft.keySignatureChoice) { _, choice in
+                            draft.musicalKey = choice.musicalKey
+                            draft.keySuggestionConfidence = nil
+                        }
+
                         Picker("대표 키", selection: $draft.musicalKey) {
                             Text("미지정").tag(nil as MusicalKey?)
                             ForEach(MusicalKey.allCases) { musicalKey in
@@ -319,8 +329,11 @@ private struct PDFImportReviewForm: View {
                                     .tag(musicalKey as MusicalKey?)
                             }
                         }
-                        .onChange(of: draft.musicalKey) { _, _ in
+                        .onChange(of: draft.musicalKey) { _, musicalKey in
                             draft.keySuggestionConfidence = nil
+                            if draft.keySignatureChoice.musicalKey != musicalKey {
+                                draft.keySignatureChoice = .unspecified
+                            }
                         }
 
                         if let confidence = draft.keySuggestionConfidence,

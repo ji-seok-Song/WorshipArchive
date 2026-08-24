@@ -2,36 +2,39 @@ import XCTest
 @testable import WorshipArchive
 
 final class ScoreKeyDetectorTests: XCTestCase {
-    private let detector = ScoreKeyDetector()
+    func testSharpCountMappingUsesCircleOfFifthsFormula() {
+        let expected: [MusicalKey] = [
+            .cMajor, .gMajor, .dMajor, .aMajor,
+            .eMajor, .bMajor, .fSharpMajor
+        ]
 
-    func testDetectsDMajorFromLeadSheetChords() {
-        let result = detector.detect(
-            in: "Dadd9 D/F# GM7 A D A7 D Bm7 Em7 A D"
+        XCTAssertEqual(
+            (0...6).compactMap { KeySignatureKeyMap.musicalKey(for: .sharps($0)) },
+            expected
         )
-
-        XCTAssertEqual(result?.musicalKey, .dMajor)
-        XCTAssertGreaterThanOrEqual(result?.confidence ?? 0, 0.65)
     }
 
-    func testDetectsEMajorWithSharpsAndSlashChords() {
-        let result = detector.detect(
-            in: "E B/D# C#m7 Bm7 E7 A E/G# F#m7 B7 E"
-        )
+    func testFlatCountMappingUsesCircleOfFifthsFormula() {
+        let expected: [MusicalKey] = [
+            .cMajor, .fMajor, .bFlatMajor, .eFlatMajor,
+            .aFlatMajor, .cSharpMajor, .fSharpMajor
+        ]
 
-        XCTAssertEqual(result?.musicalKey, .eMajor)
+        XCTAssertEqual(
+            (0...6).compactMap { KeySignatureKeyMap.musicalKey(for: .flats($0)) },
+            expected
+        )
     }
 
-    func testReturnsOnlyRootForMinorChordProgression() {
-        let result = detector.detect(
-            in: "Am Dm G C F Bdim E7 Am"
-        )
-
-        XCTAssertEqual(result?.musicalKey, .aMajor)
+    func testUnsupportedAccidentalCountIsNotGuessed() {
+        XCTAssertNil(KeySignatureKeyMap.musicalKey(for: .sharps(7)))
+        XCTAssertNil(KeySignatureKeyMap.musicalKey(for: .flats(7)))
     }
 
-    func testLeavesInsufficientEvidenceUnspecified() {
-        XCTAssertNil(detector.detect(in: "C"))
-        XCTAssertNil(detector.detect(in: "주님을 찬양합니다 영원히"))
+    func testReviewChoiceImmediatelyResolvesToRequestedKey() {
+        XCTAssertEqual(KeySignatureChoice.none.musicalKey, .cMajor)
+        XCTAssertEqual(KeySignatureChoice.sharp3.musicalKey, .aMajor)
+        XCTAssertEqual(KeySignatureChoice.flat5.musicalKey, .cSharpMajor)
     }
 
     func testSelectableKeysContainOnlyTwelvePitchNames() {

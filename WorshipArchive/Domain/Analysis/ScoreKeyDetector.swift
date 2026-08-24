@@ -1,114 +1,100 @@
 import Foundation
 
-nonisolated struct ScoreKeyCandidate: Equatable, Sendable {
-    let musicalKey: MusicalKey
-    let confidence: Double
+nonisolated enum KeySignature: Hashable, Sendable {
+    case none
+    case sharps(Int)
+    case flats(Int)
 }
 
-/// Finds only the tonal center (C...B). Major/minor quality is intentionally
-/// ignored because the import flow stores a practical performance key.
-nonisolated struct ScoreKeyDetector: Sendable {
-    func detect(in text: String) -> ScoreKeyCandidate? {
-        let roots = text
-            .components(separatedBy: .whitespacesAndNewlines)
-            .compactMap(parseChordRoot)
-        guard roots.count >= 3, let last = roots.last else {
-            return nil
-        }
-
-        let counts = Dictionary(grouping: roots, by: { $0 }).mapValues(\.count)
-        let firstIndexes = Dictionary(uniqueKeysWithValues: Set(roots).map { root in
-            (root, roots.firstIndex(of: root) ?? .max)
-        })
-        let ranked = counts.sorted { lhs, rhs in
-            if lhs.value != rhs.value { return lhs.value > rhs.value }
-            return firstIndexes[lhs.key, default: .max]
-                < firstIndexes[rhs.key, default: .max]
-        }
-        guard let best = ranked.first else { return nil }
-        let runnerUpCount = ranked.dropFirst().first?.value ?? 0
-        let margin = best.value - runnerUpCount
-        let occurrenceCount = best.value
-        guard occurrenceCount >= 2 else { return nil }
-        guard best.key == last || margin >= 3 else { return nil }
-        guard let musicalKey = musicalKey(for: best.key) else { return nil }
-
-        let confidence = min(
-            0.95,
-            max(0.65, 0.62 + Double(occurrenceCount) / Double(roots.count) * 0.2
-                + min(Double(margin) / 12, 0.12))
-        )
-        return ScoreKeyCandidate(musicalKey: musicalKey, confidence: confidence)
-    }
-
-    private func parseChordRoot(_ rawToken: String) -> Int? {
-        var token = rawToken.trimmingCharacters(
-            in: CharacterSet(charactersIn: "\"'`,.:;[]{}<>|()")
-        )
-        token = token
-            .replacingOccurrences(of: "♯", with: "#")
-            .replacingOccurrences(of: "♭", with: "b")
-            .replacingOccurrences(of: "¾", with: "#")
-        guard let first = token.first, ("A"..."G").contains(String(first)) else {
-            return nil
-        }
-
-        if token.count > 2 {
-            let second = token.index(after: token.startIndex)
-            let third = token.index(after: second)
-            if token[second] == "t", token[third].lowercased() == "m" {
-                token.replaceSubrange(second...second, with: "#")
+nonisolated enum KeySignatureKeyMap {
+    static func musicalKey(for signature: KeySignature) -> MusicalKey? {
+        switch signature {
+        case .none:
+            .cMajor
+        case .sharps(let count):
+            switch count {
+            case 0: .cMajor
+            case 1: .gMajor
+            case 2: .dMajor
+            case 3: .aMajor
+            case 4: .eMajor
+            case 5: .bMajor
+            case 6: .fSharpMajor
+            default: nil
+            }
+        case .flats(let count):
+            switch count {
+            case 0: .cMajor
+            case 1: .fMajor
+            case 2: .bFlatMajor
+            case 3: .eFlatMajor
+            case 4: .aFlatMajor
+            case 5: .cSharpMajor
+            case 6: .fSharpMajor
+            default: nil
             }
         }
+    }
+}
 
-        var rootLength = 1
-        if token.count > 1 {
-            let accidental = token[token.index(after: token.startIndex)]
-            if accidental == "#" || accidental == "b" { rootLength += 1 }
-        }
-        let root = String(token.prefix(rootLength))
-        let suffix = token.dropFirst(rootLength).split(separator: "/", maxSplits: 1).first ?? ""
-        let normalizedSuffix = suffix.lowercased().replacingOccurrences(of: "?", with: "7")
-        let allowedSuffixes: Set<String> = [
-            "", "m", "min", "maj", "major", "minor", "dim", "aug",
-            "sus", "sus2", "sus4", "add", "add9", "2", "4", "5", "6",
-            "7", "9", "11", "13", "m6", "m7", "m9", "m11", "maj7",
-            "maj9", "mmaj7", "dim7", "7sus4", "7sus2"
-        ]
-        guard allowedSuffixes.contains(normalizedSuffix) else { return nil }
+nonisolated enum KeySignatureChoice: String, CaseIterable, Identifiable, Sendable {
+    case unspecified
+    case none
+    case sharp1
+    case sharp2
+    case sharp3
+    case sharp4
+    case sharp5
+    case sharp6
+    case flat1
+    case flat2
+    case flat3
+    case flat4
+    case flat5
+    case flat6
 
-        return switch root {
-        case "C": 0
-        case "C#", "Db": 1
-        case "D": 2
-        case "D#", "Eb": 3
-        case "E": 4
-        case "F": 5
-        case "F#", "Gb": 6
-        case "G": 7
-        case "G#", "Ab": 8
-        case "A": 9
-        case "A#", "Bb": 10
-        case "B": 11
-        default: nil
+    var id: Self { self }
+
+    var displayName: String {
+        switch self {
+        case .unspecified: "미지정"
+        case .none: "조표 없음 · C"
+        case .sharp1: "♯ 1개 · G"
+        case .sharp2: "♯ 2개 · D"
+        case .sharp3: "♯ 3개 · A"
+        case .sharp4: "♯ 4개 · E"
+        case .sharp5: "♯ 5개 · B"
+        case .sharp6: "♯ 6개 · F♯"
+        case .flat1: "♭ 1개 · F"
+        case .flat2: "♭ 2개 · B♭"
+        case .flat3: "♭ 3개 · E♭"
+        case .flat4: "♭ 4개 · A♭"
+        case .flat5: "♭ 5개 · D♭"
+        case .flat6: "♭ 6개 · G♭"
         }
     }
 
-    private func musicalKey(for pitchClass: Int) -> MusicalKey? {
-        return switch pitchClass {
-        case 0: .cMajor
-        case 1: .cSharpMajor
-        case 2: .dMajor
-        case 3: .eFlatMajor
-        case 4: .eMajor
-        case 5: .fMajor
-        case 6: .fSharpMajor
-        case 7: .gMajor
-        case 8: .aFlatMajor
-        case 9: .aMajor
-        case 10: .bFlatMajor
-        case 11: .bMajor
-        default: nil
+    var musicalKey: MusicalKey? {
+        guard let signature else { return nil }
+        return KeySignatureKeyMap.musicalKey(for: signature)
+    }
+
+    private var signature: KeySignature? {
+        switch self {
+        case .unspecified: nil
+        case .none: KeySignature.none
+        case .sharp1: .sharps(1)
+        case .sharp2: .sharps(2)
+        case .sharp3: .sharps(3)
+        case .sharp4: .sharps(4)
+        case .sharp5: .sharps(5)
+        case .sharp6: .sharps(6)
+        case .flat1: .flats(1)
+        case .flat2: .flats(2)
+        case .flat3: .flats(3)
+        case .flat4: .flats(4)
+        case .flat5: .flats(5)
+        case .flat6: .flats(6)
         }
     }
 }
