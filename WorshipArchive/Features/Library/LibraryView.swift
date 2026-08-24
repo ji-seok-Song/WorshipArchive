@@ -8,12 +8,14 @@ struct LibraryView: View {
     @State private var mode: LibraryMode = .songs
     @State private var showsFavoritesOnly = false
     @State private var favoriteSaveErrorMessage: String?
+    @State private var documentPendingDeletion: ArchiveDocument?
+    @State private var documentDeleteErrorMessage: String?
 
-    let fileAccess: any StoredPDFAccessing
+    let fileAccess: any PDFFileStoring
     let addPDF: () -> Void
 
     init(
-        fileAccess: any StoredPDFAccessing = LocalPDFFileStore.live(),
+        fileAccess: any PDFFileStoring = LocalPDFFileStore.live(),
         addPDF: @escaping () -> Void = {}
     ) {
         self.fileAccess = fileAccess
@@ -73,6 +75,31 @@ struct LibraryView: View {
         } message: {
             Text(favoriteSaveErrorMessage ?? "잠시 후 다시 시도해 주세요.")
         }
+        .alert(
+            "원본 PDF를 삭제하지 못했어요",
+            isPresented: Binding(
+                get: { documentDeleteErrorMessage != nil },
+                set: { if !$0 { documentDeleteErrorMessage = nil } }
+            )
+        ) {
+            Button("확인", role: .cancel) {}
+        } message: {
+            Text(documentDeleteErrorMessage ?? "잠시 후 다시 시도해 주세요.")
+        }
+        .confirmationDialog(
+            "원본 PDF와 연결된 악보를 삭제할까요?",
+            isPresented: Binding(
+                get: { documentPendingDeletion != nil },
+                set: { if !$0 { documentPendingDeletion = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: documentPendingDeletion
+        ) { document in
+            Button("삭제", role: .destructive) { delete(document) }
+            Button("취소", role: .cancel) {}
+        } message: { document in
+            Text("‘\(document.originalFileName)’과 이 PDF에만 연결된 곡이 함께 삭제됩니다.")
+        }
     }
 
     @ViewBuilder
@@ -123,6 +150,11 @@ struct LibraryView: View {
                             )
                         }
                         .buttonStyle(.plain)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button("삭제", systemImage: "trash", role: .destructive) {
+                                documentPendingDeletion = document
+                            }
+                        }
                     }
                 }
             }
@@ -179,6 +211,28 @@ struct LibraryView: View {
         } catch {
             song.isFavorite = previousValue
             favoriteSaveErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func delete(_ document: ArchiveDocument) {
+        do {
+            let storedFileName = try ArchiveLibraryEditing.deleteDocument(
+                document,
+                in: modelContext
+            )
+            documentPendingDeletion = nil
+            Task {
+                do {
+                    try await fileAccess.removeStoredFile(named: storedFileName)
+                } catch PDFFileStoreError.storedFileMissing {
+                    // The requested final state is already satisfied.
+                } catch {
+                    documentDeleteErrorMessage = "목록에서는 삭제했지만 기기 파일 정리가 남았습니다. 앱이 다음 정리 작업에서 다시 처리합니다."
+                }
+            }
+        } catch {
+            documentPendingDeletion = nil
+            documentDeleteErrorMessage = error.localizedDescription
         }
     }
 }
