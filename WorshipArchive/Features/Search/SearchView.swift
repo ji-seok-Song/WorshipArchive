@@ -78,10 +78,11 @@ struct SearchView: View {
                     }
                 }
             }
-            .frame(maxWidth: 620)
+            .frame(maxWidth: 760)
             .padding()
             .padding(.bottom, 80)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(ArchiveTheme.background)
         .navigationTitle("검색")
         .searchable(text: $query, prompt: "제목, 가사 또는 메모 검색")

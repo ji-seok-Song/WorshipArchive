@@ -47,17 +47,18 @@ struct LibraryView: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
-                .frame(maxWidth: 620)
+                .frame(maxWidth: 760)
                 .padding(.horizontal)
             }
 
             ScrollView {
                 libraryContent
-                    .frame(maxWidth: 620)
+                    .frame(maxWidth: 760)
                     .padding(.horizontal)
                     .padding(.bottom, 96)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.top, 8)
         .background(ArchiveTheme.background)
         .navigationTitle("라이브러리")

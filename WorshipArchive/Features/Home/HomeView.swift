@@ -92,6 +92,7 @@ struct HomeView: View {
             .padding(.horizontal)
             .padding(.bottom, 104)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(ArchiveTheme.background)
         .navigationTitle("찬양서랍")
     }
