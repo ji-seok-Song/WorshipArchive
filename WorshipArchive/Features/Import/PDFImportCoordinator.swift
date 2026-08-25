@@ -631,6 +631,7 @@ final class PDFImportCoordinator {
         SongDraft(
             title: suggestion.title,
             musicalKey: suggestion.musicalKey,
+            keySignatureChoice: KeySignatureChoice(signature: suggestion.keySignature),
             startPageNumber: suggestion.startPageNumber,
             endPageNumber: suggestion.endPageNumber,
             suggestionConfidence: suggestion.confidence,

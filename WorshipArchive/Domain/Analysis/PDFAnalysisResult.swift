@@ -29,6 +29,7 @@ nonisolated struct SongDraftSuggestion: Equatable, Sendable {
     let startPageNumber: Int
     let endPageNumber: Int
     let confidence: Double
+    let keySignature: KeySignature?
     let musicalKey: MusicalKey?
     let keyConfidence: Double?
 
@@ -37,6 +38,7 @@ nonisolated struct SongDraftSuggestion: Equatable, Sendable {
         startPageNumber: Int,
         endPageNumber: Int,
         confidence: Double,
+        keySignature: KeySignature? = nil,
         musicalKey: MusicalKey? = nil,
         keyConfidence: Double? = nil
     ) {
@@ -44,6 +46,7 @@ nonisolated struct SongDraftSuggestion: Equatable, Sendable {
         self.startPageNumber = startPageNumber
         self.endPageNumber = endPageNumber
         self.confidence = confidence
+        self.keySignature = keySignature
         self.musicalKey = musicalKey
         self.keyConfidence = keyConfidence
     }

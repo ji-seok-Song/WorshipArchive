@@ -13,13 +13,16 @@ actor LocalPDFAnalyzer: PDFAnalyzing {
 
     private let textRecognizer: any PageTextRecognizing
     private let suggester: SongDraftSuggester
+    private let keySignatureDetector: ScoreKeySignatureDetector
 
     init(
         textRecognizer: any PageTextRecognizing = VisionPageTextRecognizer(),
-        suggester: SongDraftSuggester = SongDraftSuggester()
+        suggester: SongDraftSuggester = SongDraftSuggester(),
+        keySignatureDetector: ScoreKeySignatureDetector = ScoreKeySignatureDetector()
     ) {
         self.textRecognizer = textRecognizer
         self.suggester = suggester
+        self.keySignatureDetector = keySignatureDetector
     }
 
     func analyze(
@@ -176,10 +179,14 @@ actor LocalPDFAnalyzer: PDFAnalyzing {
             totalPageCount: 1
         ))
         try Task.checkCancellation()
-        let suggestions = suggester.suggest(
+        let rawSuggestions = suggester.suggest(
             pages: pages,
             originalFileName: originalFileName,
             documentPageCount: expectedPageCount
+        )
+        let suggestions = try suggestionsWithDetectedKeys(
+            rawSuggestions,
+            document: document
         )
         await progress(PDFAnalysisProgress(
             stage: .suggestingSongs,
@@ -189,6 +196,35 @@ actor LocalPDFAnalyzer: PDFAnalyzing {
         try Task.checkCancellation()
 
         return PDFAnalysisResult(pages: pages, suggestions: suggestions)
+    }
+
+    private func suggestionsWithDetectedKeys(
+        _ suggestions: [SongDraftSuggestion],
+        document: PDFDocument
+    ) throws -> [SongDraftSuggestion] {
+        try suggestions.map { suggestion in
+            try Task.checkCancellation()
+            let pageIndex = suggestion.startPageNumber - 1
+            guard let page = document.page(at: pageIndex),
+                  let image = render(page: page, maximumLongestSide: 1_600),
+                  let detected = keySignatureDetector.detect(in: image),
+                  let musicalKey = KeySignatureKeyMap.musicalKey(
+                      for: detected.signature
+                  )
+            else {
+                return suggestion
+            }
+
+            return SongDraftSuggestion(
+                title: suggestion.title,
+                startPageNumber: suggestion.startPageNumber,
+                endPageNumber: suggestion.endPageNumber,
+                confidence: suggestion.confidence,
+                keySignature: detected.signature,
+                musicalKey: musicalKey,
+                keyConfidence: detected.confidence
+            )
+        }
     }
 
     private func needsTextRecognition(_ text: String) -> Bool {
@@ -522,7 +558,10 @@ actor LocalPDFAnalyzer: PDFAnalyzing {
         )
     }
 
-    private func render(page: PDFPage) -> CGImage? {
+    private func render(
+        page: PDFPage,
+        maximumLongestSide: CGFloat = 3_000
+    ) -> CGImage? {
         let bounds = page.bounds(for: .mediaBox)
         let longestSide = max(bounds.width, bounds.height)
         guard
@@ -535,7 +574,7 @@ actor LocalPDFAnalyzer: PDFAnalyzing {
             return nil
         }
 
-        let scale = min(2, 3000 / longestSide)
+        let scale = min(2, maximumLongestSide / longestSide)
         let width = max(Int(ceil(bounds.width * scale)), 1)
         let height = max(Int(ceil(bounds.height * scale)), 1)
         guard let context = CGContext(

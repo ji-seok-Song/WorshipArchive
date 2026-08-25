@@ -37,6 +37,13 @@ final class ScoreKeyDetectorTests: XCTestCase {
         XCTAssertEqual(KeySignatureChoice.flat5.musicalKey, .cSharpMajor)
     }
 
+    func testDetectedSignatureSelectsMatchingReviewChoice() {
+        XCTAssertEqual(KeySignatureChoice(signature: KeySignature.none), .none)
+        XCTAssertEqual(KeySignatureChoice(signature: .sharps(3)), .sharp3)
+        XCTAssertEqual(KeySignatureChoice(signature: .flats(4)), .flat4)
+        XCTAssertEqual(KeySignatureChoice(signature: .sharps(7)), .unspecified)
+    }
+
     func testSelectableKeysContainOnlyTwelvePitchNames() {
         XCTAssertEqual(MusicalKey.allCases.count, 12)
         XCTAssertFalse(MusicalKey.allCases.map(\.displayName).contains { $0.hasSuffix("m") })
