@@ -11,6 +11,7 @@ struct PDFImportView: View {
     @State private var previewDocument: PDFPreviewDocument?
     @State private var isDiscardConfirmationPresented = false
     @State private var isReanalysisConfirmationPresented = false
+    @State private var isReplacementConfirmationPresented = false
 
     init(
         fileStore: any PDFFileStoring,
@@ -42,11 +43,11 @@ struct PDFImportView: View {
                 case .reviewing:
                     PDFImportReviewForm(
                         coordinator: coordinator,
-                        previewPDF: {
-                            showPreview()
+                        previewPDF: { pageNumber in
+                            showPreview(startingAt: pageNumber)
                         },
                         selectAnotherPDF: {
-                            isFileImporterPresented = true
+                            isReplacementConfirmationPresented = true
                         },
                         retryAnalysis: {
                             isReanalysisConfirmationPresented = true
@@ -88,7 +89,10 @@ struct PDFImportView: View {
             onCompletion: handleFileSelection
         )
         .sheet(item: $previewDocument) { document in
-            PDFPreviewView(url: document.url)
+            PDFPreviewView(
+                url: document.url,
+                initialPageIndex: document.initialPageIndex
+            )
         }
         .interactiveDismissDisabled(coordinator.hasPendingImport)
         .confirmationDialog(
@@ -114,6 +118,18 @@ struct PDFImportView: View {
             Button("현재 편집 유지", role: .cancel) {}
         } message: {
             Text("직접 수정한 곡 제목, 키, 페이지 범위가 새 자동 제안으로 바뀝니다.")
+        }
+        .confirmationDialog(
+            "다른 PDF로 바꿀까요?",
+            isPresented: $isReplacementConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("다른 PDF 선택", role: .destructive) {
+                isFileImporterPresented = true
+            }
+            Button("현재 PDF 유지", role: .cancel) {}
+        } message: {
+            Text("새 PDF를 선택하면 현재 PDF의 곡 제목, 키, 페이지 범위 편집 내용은 사라집니다.")
         }
         .alert(
             "PDF를 처리할 수 없어요",
@@ -237,10 +253,13 @@ struct PDFImportView: View {
         }
     }
 
-    private func showPreview() {
+    private func showPreview(startingAt pageNumber: Int?) {
         Task {
             guard let url = await coordinator.previewURL() else { return }
-            previewDocument = PDFPreviewDocument(url: url)
+            previewDocument = PDFPreviewDocument(
+                url: url,
+                initialPageIndex: pageNumber.map { max(0, $0 - 1) }
+            )
         }
     }
 
@@ -254,13 +273,22 @@ struct PDFImportView: View {
 private struct PDFImportReviewForm: View {
     @Query(sort: \Song.title) private var existingSongs: [Song]
     @Bindable var coordinator: PDFImportCoordinator
-    let previewPDF: () -> Void
+    let previewPDF: (Int?) -> Void
     let selectAnotherPDF: () -> Void
     let retryAnalysis: () -> Void
 
     var body: some View {
         Form {
             if let stagedPDF = coordinator.stagedPDF {
+                Section {
+                    Label("자동 분석 결과를 확인해 주세요", systemImage: "checklist")
+                        .font(.headline)
+
+                    Text("곡 제목과 페이지 범위가 맞는지 확인한 뒤 저장하세요. 키가 확실하지 않으면 미지정으로 두어도 됩니다.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
                 Section("원본 PDF") {
                     LabeledContent("파일", value: stagedPDF.originalFileName)
                     LabeledContent("페이지", value: "\(stagedPDF.pageCount)페이지")
@@ -273,7 +301,7 @@ private struct PDFImportReviewForm: View {
                     )
 
                     Button {
-                        previewPDF()
+                        previewPDF(nil)
                     } label: {
                         Label("원본 PDF 미리보기", systemImage: "doc.text.magnifyingglass")
                     }
@@ -313,30 +341,22 @@ private struct PDFImportReviewForm: View {
 
                         TextField("곡 제목", text: $draft.title)
 
-                        Picker("같은 곡 묶기", selection: $draft.existingSongID) {
-                            Text("새 곡으로 저장").tag(nil as UUID?)
-                            ForEach(existingSongs, id: \.id) { song in
-                                Text(song.title).tag(song.id as UUID?)
+                        if !existingSongs.isEmpty {
+                            Picker("같은 곡 묶기", selection: $draft.existingSongID) {
+                                Text("새 곡으로 저장").tag(nil as UUID?)
+                                ForEach(existingSongs, id: \.id) { song in
+                                    Text(song.title).tag(song.id as UUID?)
+                                }
+                            }
+                            .onChange(of: draft.existingSongID) { _, songID in
+                                guard let songID,
+                                      let song = existingSongs.first(where: { $0.id == songID })
+                                else { return }
+                                draft.title = song.title
                             }
                         }
-                        .onChange(of: draft.existingSongID) { _, songID in
-                            guard let songID,
-                                  let song = existingSongs.first(where: { $0.id == songID })
-                            else { return }
-                            draft.title = song.title
-                        }
 
-                        Picker("조표", selection: $draft.keySignatureChoice) {
-                            ForEach(KeySignatureChoice.allCases) { choice in
-                                Text(choice.displayName).tag(choice)
-                            }
-                        }
-                        .onChange(of: draft.keySignatureChoice) { _, choice in
-                            draft.musicalKey = choice.musicalKey
-                            draft.keySuggestionConfidence = nil
-                        }
-
-                        Picker("대표 키", selection: $draft.musicalKey) {
+                        Picker("키", selection: $draft.musicalKey) {
                             Text("미지정").tag(nil as MusicalKey?)
                             ForEach(MusicalKey.allCases) { musicalKey in
                                 Text(musicalKey.displayName)
@@ -352,16 +372,28 @@ private struct PDFImportReviewForm: View {
 
                         if let confidence = draft.keySuggestionConfidence,
                            let musicalKey = draft.musicalKey {
+                            let detectionSummary = draft.keySignatureChoice == .unspecified
+                                ? "\(musicalKey.displayName) 키"
+                                : draft.keySignatureChoice.displayName
                             Label(
                                 confidence < 0.75
-                                    ? "악보에서 \(musicalKey.displayName) 키로 추정·확인 필요"
-                                    : "악보에서 \(musicalKey.displayName) 키로 자동 감지",
+                                    ? "\(detectionSummary)로 추정 · 확인 필요"
+                                    : "\(detectionSummary)로 자동 감지",
                                 systemImage: confidence < 0.75
                                     ? "questionmark.circle"
                                     : "music.note"
                             )
                             .font(.caption)
                             .foregroundStyle(confidence < 0.75 ? .orange : .secondary)
+                        }
+
+                        Button {
+                            previewPDF(draft.startPageNumber)
+                        } label: {
+                            Label(
+                                "이 곡 구간 미리보기",
+                                systemImage: "doc.text.magnifyingglass"
+                            )
                         }
 
                         pageInput(
@@ -379,7 +411,7 @@ private struct PDFImportReviewForm: View {
                             coordinator.removeSongDraft(id: draft.id)
                         }
                     } header: {
-                        Text(sectionTitle(for: draft.id))
+                        Text(sectionTitle(for: draft))
                     }
                 }
 
@@ -432,15 +464,19 @@ private struct PDFImportReviewForm: View {
         }
     }
 
-    private func sectionTitle(for id: UUID) -> String {
-        guard let index = coordinator.drafts.firstIndex(where: { $0.id == id }) else {
+    private func sectionTitle(for draft: SongDraft) -> String {
+        guard let index = coordinator.drafts.firstIndex(where: { $0.id == draft.id }) else {
             return "곡"
         }
-        return "곡 \(index + 1)"
+        let title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return title.isEmpty
+            ? "곡 \(index + 1) · 제목 확인 필요"
+            : "곡 \(index + 1) · \(title)"
     }
 }
 
 private struct PDFPreviewDocument: Identifiable {
     let id = UUID()
     let url: URL
+    let initialPageIndex: Int?
 }
