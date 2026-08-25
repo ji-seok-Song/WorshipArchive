@@ -73,7 +73,8 @@ struct HomeView: View {
                         ArchiveEmptyState(
                             systemImage: "clock.arrow.circlepath",
                             title: "아직 열어본 악보가 없어요",
-                            message: "PDF를 등록하고 곡을 열면 최근 항목에서 바로 이어볼 수 있어요."
+                            message: "PDF를 등록하고 곡을 열면 최근 항목에서 바로 이어볼 수 있어요.",
+                            isCompact: true
                         )
                     } else {
                         LazyVStack(spacing: 12) {
@@ -89,7 +90,7 @@ struct HomeView: View {
             }
             .frame(maxWidth: 760)
             .padding(.horizontal)
-            .padding(.bottom, 32)
+            .padding(.bottom, 104)
         }
         .background(ArchiveTheme.background)
         .navigationTitle("찬양서랍")

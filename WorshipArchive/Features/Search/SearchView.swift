@@ -17,9 +17,14 @@ struct SearchView: View {
     @State private var searchRefreshID = UUID()
 
     let fileAccess: any StoredPDFAccessing
+    let addPDF: () -> Void
 
-    init(fileAccess: any StoredPDFAccessing = LocalPDFFileStore.live()) {
+    init(
+        fileAccess: any StoredPDFAccessing = LocalPDFFileStore.live(),
+        addPDF: @escaping () -> Void = {}
+    ) {
         self.fileAccess = fileAccess
+        self.addPDF = addPDF
         let today = Date()
         _performanceStartDate = State(
             initialValue: Calendar.current.date(
@@ -38,32 +43,44 @@ struct SearchView: View {
 
         ScrollView {
             VStack(spacing: 16) {
-                filterPanel(
-                    resultCount: displayedSongs.count,
-                    showsResults: showsResults
-                )
+                if songs.isEmpty {
+                    ArchiveEmptyState(
+                        systemImage: "doc.badge.plus",
+                        title: "먼저 악보를 추가해 주세요",
+                        message: "PDF를 한 번 등록하면 곡 제목, 가사, 메모와 키로 빠르게 찾을 수 있어요.",
+                        actionTitle: "첫 PDF 추가",
+                        actionSystemImage: "plus",
+                        action: addPDF
+                    )
+                } else {
+                    filterPanel(
+                        resultCount: displayedSongs.count,
+                        showsResults: showsResults
+                    )
 
-                if showsResults, !displayedSongs.isEmpty {
-                    LazyVStack(spacing: 12) {
-                        ForEach(displayedSongs, id: \.id) { song in
-                            SongLibraryRow(
-                                title: song.title,
-                                subtitle: keySummary(for: song),
-                                isFavorite: song.isFavorite,
-                                toggleFavorite: {
-                                    toggleFavorite(for: song)
+                    if showsResults, !displayedSongs.isEmpty {
+                        LazyVStack(spacing: 12) {
+                            ForEach(displayedSongs, id: \.id) { song in
+                                SongLibraryRow(
+                                    title: song.title,
+                                    subtitle: keySummary(for: song),
+                                    isFavorite: song.isFavorite,
+                                    toggleFavorite: {
+                                        toggleFavorite(for: song)
+                                    }
+                                ) {
+                                    SongDetailView(song: song, fileAccess: fileAccess)
                                 }
-                            ) {
-                                SongDetailView(song: song, fileAccess: fileAccess)
                             }
                         }
+                    } else {
+                        searchEmptyState(hasFilter: showsResults)
                     }
-                } else {
-                    searchEmptyState(hasFilter: showsResults)
                 }
             }
             .frame(maxWidth: 620)
             .padding()
+            .padding(.bottom, 80)
         }
         .background(ArchiveTheme.background)
         .navigationTitle("검색")

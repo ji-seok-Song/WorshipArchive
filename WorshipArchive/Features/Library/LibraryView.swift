@@ -55,6 +55,7 @@ struct LibraryView: View {
                 libraryContent
                     .frame(maxWidth: 620)
                     .padding(.horizontal)
+                    .padding(.bottom, 96)
             }
         }
         .padding(.top, 8)
@@ -183,7 +184,10 @@ struct LibraryView: View {
         ArchiveEmptyState(
             systemImage: mode.systemImage,
             title: mode.emptyTitle,
-            message: mode.emptyMessage
+            message: mode.emptyMessage,
+            actionTitle: "PDF 추가",
+            actionSystemImage: "plus",
+            action: addPDF
         )
     }
 
