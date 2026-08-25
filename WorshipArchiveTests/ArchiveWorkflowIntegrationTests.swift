@@ -90,7 +90,7 @@ final class ArchiveWorkflowIntegrationTests: XCTestCase {
         let loadedDocument = try XCTUnwrap(
             loadedResult
         )
-        XCTAssertEqual(loadedDocument.document.pageCount, 3)
+        XCTAssertEqual(loadedDocument.document.pageCount, 2)
         XCTAssertEqual(loadedDocument.pageSession.startPageIndex, 0)
         XCTAssertEqual(loadedDocument.pageSession.endPageIndex, 1)
         XCTAssertEqual(loadedDocument.pageSession.initialPageIndex, 0)

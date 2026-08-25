@@ -250,9 +250,13 @@ struct PDFViewerView: View {
         for loadedDocument: PDFViewerLoadedDocument
     ) -> some View {
         let pageSession = loadedDocument.pageSession
-        let displayedPageIndex = pageSession.clamped(
+        let sourcePageIndex = pageSession.clamped(
             currentPageIndex ?? pageSession.initialPageIndex
         )
+        let displayedPageIndex = loadedDocument.displayedPageIndex(
+            forSourcePageIndex: sourcePageIndex
+        )
+        let displayedPageSession = loadedDocument.displayedPageSession
 
         return GeometryReader { proxy in
             let allowsTwoPageLayout = horizontalSizeClass == .regular
@@ -265,25 +269,30 @@ struct PDFViewerView: View {
                 if usesTwoPageLayout {
                     PDFKitTwoPageScoreView(
                         document: loadedDocument.document,
-                        pageSession: pageSession,
+                        pageSession: displayedPageSession,
                         currentPageIndex: displayedPageIndex
                     )
                 } else {
                     PDFKitScoreView(
                         document: loadedDocument.document,
-                        pageSession: pageSession,
+                        pageSession: displayedPageSession,
                         currentPageIndex: displayedPageIndex,
-                        onPageChanged: { pageIndex in
-                            selectPage(pageIndex, in: pageSession)
+                        onPageChanged: { displayedPageIndex in
+                            selectPage(
+                                loadedDocument.sourcePageIndex(
+                                    forDisplayedPageIndex: displayedPageIndex
+                                ),
+                                in: pageSession
+                            )
                         }
                     )
                 }
             }
-            .ignoresSafeArea(edges: isPerformanceMode ? .all : .bottom)
+            .ignoresSafeArea(.container, edges: [.top, .bottom])
             .overlay(alignment: .bottom) {
                 PDFViewerPageControls(
                     pageSession: pageSession,
-                    currentPageIndex: displayedPageIndex,
+                    currentPageIndex: sourcePageIndex,
                     pageSpan: pageSpan,
                     allowsTwoPageLayout: allowsTwoPageLayout,
                     usesTwoPageLayout: usesTwoPageLayout,
@@ -585,16 +594,83 @@ actor LocalPDFDocumentLoader: PDFDocumentLoading {
             throw PDFViewerError.pageCountChanged
         }
 
-        return PDFViewerLoadedDocument(
-            document: pdfDocument,
-            pageSession: pageSession
+        let displayedDocument: PDFDocument
+        if pageSession.pageCount == pdfDocument.pageCount {
+            displayedDocument = pdfDocument
+        } else {
+            displayedDocument = try makeDisplayedDocument(
+                from: pdfDocument,
+                pageSession: pageSession
+            )
+        }
+
+        return try PDFViewerLoadedDocument(
+            document: displayedDocument,
+            pageSession: pageSession,
+            sourcePageOffset: pageSession.startPageIndex
         )
+    }
+
+    private func makeDisplayedDocument(
+        from sourceDocument: PDFDocument,
+        pageSession: PDFViewerPageSession
+    ) throws -> PDFDocument {
+        let displayedDocument = PDFDocument()
+
+        for sourcePageIndex in pageSession.startPageIndex...pageSession.endPageIndex {
+            try Task.checkCancellation()
+            guard
+                let sourcePage = sourceDocument.page(at: sourcePageIndex),
+                let copiedPage = sourcePage.copy() as? PDFPage
+            else {
+                throw PDFViewerError.pageCannotBeCopied
+            }
+            displayedDocument.insert(copiedPage, at: displayedDocument.pageCount)
+        }
+
+        guard displayedDocument.pageCount == pageSession.pageCount else {
+            throw PDFViewerError.pageCannotBeCopied
+        }
+        return displayedDocument
     }
 }
 
 nonisolated struct PDFViewerLoadedDocument: @unchecked Sendable {
     let document: PDFDocument
     let pageSession: PDFViewerPageSession
+    let displayedPageSession: PDFViewerPageSession
+    let sourcePageOffset: Int
+
+    init(
+        document: PDFDocument,
+        pageSession: PDFViewerPageSession,
+        sourcePageOffset: Int
+    ) throws {
+        guard
+            document.pageCount == pageSession.pageCount,
+            sourcePageOffset == pageSession.startPageIndex
+        else {
+            throw PDFViewerError.invalidPageRange
+        }
+
+        self.document = document
+        self.pageSession = pageSession
+        self.sourcePageOffset = sourcePageOffset
+        displayedPageSession = try PDFViewerPageSession(
+            startPageIndex: 0,
+            endPageIndex: document.pageCount - 1,
+            lastViewedPageIndex: pageSession.initialPageIndex - sourcePageOffset,
+            documentPageCount: document.pageCount
+        )
+    }
+
+    func displayedPageIndex(forSourcePageIndex pageIndex: Int) -> Int {
+        displayedPageSession.clamped(pageIndex - sourcePageOffset)
+    }
+
+    func sourcePageIndex(forDisplayedPageIndex pageIndex: Int) -> Int {
+        pageSession.clamped(pageIndex + sourcePageOffset)
+    }
 }
 
 nonisolated struct PDFViewerPageSession: Equatable, Sendable {
@@ -895,6 +971,7 @@ nonisolated enum PDFViewerError: LocalizedError, Equatable {
     case invalidStoredURL
     case documentCannotBeOpened
     case pageCountChanged
+    case pageCannotBeCopied
 
     var errorDescription: String? {
         switch self {
@@ -908,6 +985,8 @@ nonisolated enum PDFViewerError: LocalizedError, Equatable {
             "보관된 PDF를 열 수 없습니다."
         case .pageCountChanged:
             "보관된 PDF의 페이지 수가 저장 정보와 다릅니다."
+        case .pageCannotBeCopied:
+            "곡에 포함된 PDF 페이지를 열 수 없습니다."
         }
     }
 }

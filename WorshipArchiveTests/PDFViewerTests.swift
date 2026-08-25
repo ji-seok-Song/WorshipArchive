@@ -292,8 +292,8 @@ final class PDFViewerTests: XCTestCase {
 
         let models = try makeModels(
             pageCount: 5,
-            startPageIndex: 1,
-            endPageIndex: 3
+            startPageIndex: 2,
+            endPageIndex: 2
         )
         models.sheet.updateLastViewedPageIndex(2)
 
@@ -316,8 +316,19 @@ final class PDFViewerTests: XCTestCase {
             document: models.document,
             sheet: models.sheet
         )
-        XCTAssertEqual(secondResult?.document.pageCount, 5)
+        XCTAssertEqual(secondResult?.document.pageCount, 1)
         XCTAssertEqual(secondResult?.pageSession.initialPageIndex, 2)
+        XCTAssertEqual(secondResult?.displayedPageSession.startPageIndex, 0)
+        XCTAssertEqual(secondResult?.displayedPageSession.endPageIndex, 0)
+        XCTAssertEqual(secondResult?.displayedPageSession.initialPageIndex, 0)
+        XCTAssertEqual(
+            secondResult?.displayedPageIndex(forSourcePageIndex: 2),
+            0
+        )
+        XCTAssertEqual(
+            secondResult?.sourcePageIndex(forDisplayedPageIndex: 0),
+            2
+        )
         guard case .loaded = loader.phase else {
             return XCTFail("재시도 후 PDF가 열려야 합니다.")
         }
@@ -383,6 +394,8 @@ final class PDFViewerTests: XCTestCase {
         XCTAssertEqual(result?.pageSession.startPageIndex, 0)
         XCTAssertEqual(result?.pageSession.endPageIndex, 3)
         XCTAssertEqual(result?.pageSession.initialPageIndex, 0)
+        XCTAssertEqual(result?.document.pageCount, 4)
+        XCTAssertEqual(result?.displayedPageSession.endPageIndex, 3)
         XCTAssertEqual(models.sheet.lastViewedPageIndex, 2)
         XCTAssertNil(models.sheet.lastOpenedAt)
         XCTAssertNil(models.song.lastOpenedAt)
