@@ -36,7 +36,7 @@ struct HomeView: View {
                     LazyVGrid(columns: columns, spacing: 12) {
                         QuickLinkCard(
                             title: "악보 검색",
-                            subtitle: "기억나는 제목이나 가사로 찾아보세요.",
+                            subtitle: "곡 제목이나 원본 PDF 이름으로 찾아보세요.",
                             systemImage: "text.magnifyingglass",
                             tint: ArchiveTheme.tint
                         ) {

@@ -1,6 +1,8 @@
 import Foundation
 import SwiftData
 
+// Legacy schema type kept so existing local and CloudKit stores can still open.
+// The app no longer creates, searches, or displays performance records.
 @Model
 final class PerformanceRecord {
     var id: UUID = UUID()

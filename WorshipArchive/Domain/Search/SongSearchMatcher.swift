@@ -2,13 +2,16 @@ import Foundation
 
 nonisolated struct SongSearchFilter: Equatable, Sendable {
     let query: String
+    let musicalKey: MusicalKey?
     let favoritesOnly: Bool
 
     init(
         query: String = "",
+        musicalKey: MusicalKey? = nil,
         favoritesOnly: Bool = false
     ) {
         self.query = SearchTextNormalizer.normalize(query)
+        self.musicalKey = musicalKey
         self.favoritesOnly = favoritesOnly
     }
 }
@@ -35,6 +38,13 @@ enum SongSearchMatcher {
     ) -> Bool {
         guard !filter.favoritesOnly || song.isFavorite else {
             return false
+        }
+
+        if let musicalKey = filter.musicalKey {
+            let hasMatchingKey = song.sheets?.contains { sheet in
+                sheet.musicalKey == musicalKey
+            } ?? false
+            guard hasMatchingKey else { return false }
         }
 
         guard !filter.query.isEmpty else { return true }

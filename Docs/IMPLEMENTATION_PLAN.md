@@ -30,7 +30,7 @@
    - 홈, 검색, 라이브러리, 설정 화면 사이를 이동할 수 있다.
    - iPhone과 iPad에서 레이아웃이 깨지지 않는다.
 3. `feat: define local archive data model`
-   - 원본 문서, 페이지 분석, 곡, 악보 버전, 예배 기록, 뷰어 상태를 저장할 수 있다.
+   - 원본 문서, 페이지 분석, 곡, 악보 버전, 뷰어 상태를 저장할 수 있다.
 4. `feat: add sandboxed PDF document storage`
    - 가져온 파일을 앱 전용 폴더에 원본 그대로 복사하고 중복을 식별한다.
 5. `feat: import PDF files from document picker`
@@ -44,11 +44,11 @@
 9. `feat: add analysis review flow`
    - 곡 추가·삭제와 제목·키·페이지 범위 수정 후에만 저장한다.
 10. `feat: build searchable song library`
-    - 제목·가사 검색, 키 필터, 즐겨찾기가 동작한다.
+    - 곡 제목·원본 PDF 이름 검색, 키 필터, 즐겨찾기가 동작한다.
 11. `feat: open song ranges in PDF viewer`
     - 선택한 곡의 시작 페이지로 열고 마지막 페이지를 기억한다.
-12. `feat: add performance records and date filters`
-    - 연주 이력과 날짜·예배 종류 검색이 동작한다.
+12. `feat: simplify search around songs, PDF names, and keys`
+    - 가사·예배 기록 없이 곡 제목, 원본 PDF 이름, 키를 중심으로 빠르게 찾는다.
 13. `feat: sync archives with CloudKit`
     - 로컬 전용 모드를 유지하면서 메타데이터와 PDF 자산을 동기화한다.
 14. `feat: support offline access and adaptive iPad viewing`

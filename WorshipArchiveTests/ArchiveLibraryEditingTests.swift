@@ -8,7 +8,7 @@ final class ArchiveLibraryEditingTests: XCTestCase {
         let container = try AppModelContainer.make(inMemory: true)
         let context = ModelContext(container)
         let document = makeDocument(name: "수정.pdf", pages: 3)
-        let song = Song(title: "이전 제목", lyricsText: "이전 가사")
+        let song = Song(title: "이전 제목")
         let sheet = try SongSheet.create(
             startPageIndex: 0,
             endPageIndex: 0,
@@ -51,7 +51,6 @@ final class ArchiveLibraryEditingTests: XCTestCase {
         XCTAssertEqual(sheet.endPageIndex, 2)
         XCTAssertTrue(sheet.recognizedText.contains("2페이지 가사"))
         XCTAssertFalse(sheet.recognizedText.contains("1페이지 가사"))
-        XCTAssertEqual(song.lyricsText, sheet.recognizedText)
     }
 
     @MainActor
@@ -96,12 +95,11 @@ final class ArchiveLibraryEditingTests: XCTestCase {
         XCTAssertEqual(try context.fetch(FetchDescriptor<ArchiveDocument>()).count, 1)
         let songs = try context.fetch(FetchDescriptor<Song>())
         XCTAssertEqual(songs.map(\.title), ["공통 곡"])
-        XCTAssertEqual(songs.first?.lyricsText, "남은 가사")
         XCTAssertEqual(try context.fetch(FetchDescriptor<SongSheet>()).count, 1)
     }
 
     @MainActor
-    func testMergingSongsMovesSheetsRecordsNotesAndFavorite() throws {
+    func testMergingSongsMovesSheetsNotesAndFavorite() throws {
         let container = try AppModelContainer.make(inMemory: true)
         let context = ModelContext(container)
         let document = makeDocument(name: "병합.pdf", pages: 2)
@@ -125,29 +123,19 @@ final class ArchiveLibraryEditingTests: XCTestCase {
             document: document,
             song: source
         )
-        let record = PerformanceRecord(
-            performedAt: Date(),
-            serviceType: "청년예배",
-            song: source
-        )
         context.insert(document)
         [target, source].forEach(context.insert)
         [targetSheet, sourceSheet].forEach(context.insert)
-        context.insert(record)
         try context.save()
 
         try ArchiveLibraryEditing.mergeSong(source, into: target, in: context)
 
         XCTAssertEqual(try context.fetch(FetchDescriptor<Song>()).count, 1)
         XCTAssertEqual(target.sheets?.count, 2)
-        XCTAssertEqual(target.performanceRecords?.count, 1)
         XCTAssertTrue(target.isFavorite)
         XCTAssertTrue(target.notes.contains("대표 메모"))
         XCTAssertTrue(target.notes.contains("추가 메모"))
-        XCTAssertTrue(target.lyricsText.contains("대표 가사"))
-        XCTAssertTrue(target.lyricsText.contains("추가 가사"))
         XCTAssertEqual(sourceSheet.song?.id, target.id)
-        XCTAssertEqual(record.song?.id, target.id)
     }
 
     @MainActor

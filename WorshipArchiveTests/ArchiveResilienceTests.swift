@@ -73,17 +73,14 @@ final class ArchiveResilienceTests: XCTestCase {
         let documents = try context.fetch(FetchDescriptor<ArchiveDocument>())
         let songs = try context.fetch(FetchDescriptor<Song>())
         let sheets = try context.fetch(FetchDescriptor<SongSheet>())
-        let records = try context.fetch(FetchDescriptor<PerformanceRecord>())
 
         let document = try XCTUnwrap(documents.first)
         let song = try XCTUnwrap(songs.first)
         let sheet = try XCTUnwrap(sheets.first)
-        let record = try XCTUnwrap(records.first)
 
         XCTAssertEqual(documents.count, 1)
         XCTAssertEqual(songs.count, 1)
         XCTAssertEqual(sheets.count, 1)
-        XCTAssertEqual(records.count, 1)
 
         XCTAssertEqual(document.id, expected.documentID)
         XCTAssertEqual(document.analysisStatus, .completed)
@@ -93,7 +90,6 @@ final class ArchiveResilienceTests: XCTestCase {
         XCTAssertEqual(song.title, "다시 여는 찬양")
         XCTAssertEqual(song.lastOpenedAt, expected.openedAt)
         XCTAssertEqual(song.sheets?.map(\.id), [expected.sheetID])
-        XCTAssertEqual(song.performanceRecords?.map(\.id), [expected.recordID])
 
         XCTAssertEqual(sheet.id, expected.sheetID)
         XCTAssertEqual(sheet.document?.id, expected.documentID)
@@ -104,13 +100,6 @@ final class ArchiveResilienceTests: XCTestCase {
         XCTAssertEqual(sheet.lastViewedPageIndex, 2)
         XCTAssertEqual(sheet.lastOpenedAt, expected.openedAt)
 
-        XCTAssertEqual(record.id, expected.recordID)
-        XCTAssertEqual(record.song?.id, expected.songID)
-        XCTAssertEqual(record.performedAt, expected.performedAt)
-        XCTAssertEqual(record.serviceType, "주일예배")
-        XCTAssertEqual(record.leader, "이인도")
-        XCTAssertEqual(record.musicalKey, .gMajor)
-        XCTAssertEqual(record.notes, "재시작 후에도 보존할 기록")
     }
 
     @MainActor
@@ -120,7 +109,6 @@ final class ArchiveResilienceTests: XCTestCase {
         let container = try makeDiskContainer(at: storeURL)
         let context = ModelContext(container)
         let openedAt = Date(timeIntervalSince1970: 1_800_000_100)
-        let performedAt = Date(timeIntervalSince1970: 1_799_000_000)
 
         let document = ArchiveDocument(
             originalFileName: "재시작 예배 악보.pdf",
@@ -133,7 +121,6 @@ final class ArchiveResilienceTests: XCTestCase {
         )
         let song = Song(
             title: "다시 여는 찬양",
-            lyricsText: "관계와 열람 상태를 다시 불러옵니다",
             notes: "디스크 재개방 회귀 테스트",
             isFavorite: true,
             createdAt: Date(timeIntervalSince1970: 1_798_000_100)
@@ -151,28 +138,16 @@ final class ArchiveResilienceTests: XCTestCase {
         sheet.lastOpenedAt = openedAt
         song.lastOpenedAt = openedAt
 
-        let record = PerformanceRecord(
-            performedAt: performedAt,
-            serviceType: "주일예배",
-            leader: "이인도",
-            musicalKey: .gMajor,
-            notes: "재시작 후에도 보존할 기록",
-            song: song
-        )
-
         context.insert(document)
         context.insert(song)
         context.insert(sheet)
-        context.insert(record)
         try context.save()
 
         return PersistedArchiveFixture(
             documentID: document.id,
             songID: song.id,
             sheetID: sheet.id,
-            recordID: record.id,
-            openedAt: openedAt,
-            performedAt: performedAt
+            openedAt: openedAt
         )
     }
 
@@ -196,7 +171,5 @@ private struct PersistedArchiveFixture {
     let documentID: UUID
     let songID: UUID
     let sheetID: UUID
-    let recordID: UUID
     let openedAt: Date
-    let performedAt: Date
 }

@@ -497,11 +497,8 @@ final class PDFImportCoordinator {
                         throw PDFImportValidationError.selectedSongMissing
                     }
                     song = existingSong
-                    song.lyricsText = [song.lyricsText, recognizedText]
-                        .filter { !$0.isEmpty }
-                        .joined(separator: "\n\n")
                 } else {
-                    song = Song(title: draft.title, lyricsText: recognizedText)
+                    song = Song(title: draft.title)
                     context.insert(song)
                 }
                 let sheet = try SongSheet.create(

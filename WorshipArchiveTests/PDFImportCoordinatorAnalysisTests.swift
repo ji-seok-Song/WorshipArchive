@@ -5,7 +5,7 @@ import XCTest
 
 final class PDFImportCoordinatorAnalysisTests: XCTestCase {
     @MainActor
-    func testAnalyzedImportPersistsPagesSongsAndSearchableText() async throws {
+    func testAnalyzedImportPersistsPagesSongsAndSheetRecognitionText() async throws {
         let sourceURL = try PDFTestFixture.make(pages: [
             "첫 번째 찬양\n주의 사랑을 영원히 노래하며 기쁨으로 예배합니다",
             "두 번째 찬양\n온 마음을 다하여 주님의 이름을 높여 찬양합니다"
@@ -26,7 +26,8 @@ final class PDFImportCoordinatorAnalysisTests: XCTestCase {
         )
         let container = try AppModelContainer.make(inMemory: true)
         let seedContext = ModelContext(container)
-        let existingSong = Song(title: "이미 저장된 찬양", lyricsText: "기존 가사")
+        let existingSong = Song(title: "이미 저장된 찬양")
+        existingSong.lyricsText = "기존 가사"
         seedContext.insert(existingSong)
         try seedContext.save()
 
@@ -56,9 +57,11 @@ final class PDFImportCoordinatorAnalysisTests: XCTestCase {
             songs.first(where: { $0.id == existingSong.id })
         )
         XCTAssertEqual(updatedExistingSong.sheets?.count, 1)
-        XCTAssertTrue(updatedExistingSong.lyricsText.contains("기존 가사"))
-        XCTAssertTrue(updatedExistingSong.lyricsText.contains("주의 사랑"))
-        XCTAssertTrue(songs.allSatisfy { !$0.lyricsText.isEmpty })
+        XCTAssertEqual(updatedExistingSong.lyricsText, "기존 가사")
+        XCTAssertTrue(
+            songs.filter { $0.id != existingSong.id }
+                .allSatisfy { $0.lyricsText.isEmpty }
+        )
         XCTAssertTrue(sheets.allSatisfy { !$0.recognizedText.isEmpty })
     }
 }

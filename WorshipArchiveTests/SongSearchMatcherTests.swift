@@ -11,114 +11,114 @@ final class SongSearchMatcherTests: XCTestCase {
         ))
     }
 
-    func testMatchesLyricsPhrase() {
-        let song = Song(
+    func testMatchesPDFFileNameAndSeparatorWords() throws {
+        let models = try makeSong(
             title: "주의 이름 높이며",
-            lyricsText: "온 세상 위하여 나 복음 전하리"
+            fileName: "25_09_06_Byhim 콘티🩵.pdf"
         )
 
         XCTAssertTrue(SongSearchMatcher.matches(
-            song,
-            filter: SongSearchFilter(query: "복음 전하리")
+            models.song,
+            filter: SongSearchFilter(query: "byhim 콘티")
+        ))
+        XCTAssertTrue(SongSearchMatcher.matches(
+            models.song,
+            filter: SongSearchFilter(query: "25 09 06")
         ))
     }
 
-    func testMatchesUserNotes() {
-        let song = Song(
-            title: "주 사랑이 나를 숨쉬게 해",
-            notes: "청년 예배에서 마지막 곡으로 사용"
-        )
-
-        XCTAssertTrue(SongSearchMatcher.matches(
-            song,
-            filter: SongSearchFilter(query: "마지막 곡")
-        ))
-    }
-
-    func testNormalizesWhitespaceInQueryAndSearchableText() {
-        let song = Song(
-            title: "주의 은혜",
-            lyricsText: "영원히\n    주를   찬양해"
-        )
-
-        XCTAssertTrue(SongSearchMatcher.matches(
-            song,
-            filter: SongSearchFilter(query: "  영원히   주를\n찬양해  ")
-        ))
-    }
-
-    func testMatchesCaseAndCharacterWidthInsensitively() {
-        let song = Song(title: "ＪＥＳＵＳ　ＬＯＶＥ")
-
-        XCTAssertTrue(SongSearchMatcher.matches(
-            song,
-            filter: SongSearchFilter(query: "jesus love")
-        ))
-    }
-
-    func testCachedLyricsRefreshWhenSourceLyricsChange() {
-        let song = Song(title: "가사 수정", lyricsText: "첫 번째 가사")
-        let cache = SongSearchTextCache(maximumEntryCount: 4)
-
-        XCTAssertTrue(SongSearchMatcher.matches(
-            song,
-            filter: SongSearchFilter(query: "첫 번째"),
-            searchTextCache: cache
-        ))
-
-        song.lyricsText = "바뀐 뒤의 새 가사"
+    func testDoesNotSearchLegacyLyricsOrNotes() {
+        let song = Song(title: "다른 제목", notes: "검색에서 제외할 메모")
+        song.lyricsText = "검색에서 제외할 가사"
 
         XCTAssertFalse(SongSearchMatcher.matches(
             song,
-            filter: SongSearchFilter(query: "첫 번째"),
-            searchTextCache: cache
+            filter: SongSearchFilter(query: "제외할 가사")
         ))
-        XCTAssertTrue(SongSearchMatcher.matches(
+        XCTAssertFalse(SongSearchMatcher.matches(
             song,
-            filter: SongSearchFilter(query: "새 가사"),
-            searchTextCache: cache
+            filter: SongSearchFilter(query: "제외할 메모")
         ))
     }
 
-    func testCachedNotesRefreshWhenSourceNotesChange() {
-        let song = Song(title: "메모 수정", notes: "오프닝 곡")
+    func testFiltersSongsByKey() throws {
+        let gSong = try makeSong(
+            title: "G키 찬양",
+            fileName: "g-score.pdf",
+            musicalKey: .gMajor
+        ).song
+        let aSong = try makeSong(
+            title: "A키 찬양",
+            fileName: "a-score.pdf",
+            musicalKey: .aMajor
+        ).song
+
+        let matches = SongSearchMatcher.filter(
+            [aSong, gSong],
+            using: SongSearchFilter(musicalKey: .gMajor)
+        )
+
+        XCTAssertEqual(matches.map(\.id), [gSong.id])
+    }
+
+    func testCombinesTitlePDFKeyAndFavoriteFilters() throws {
+        let matchingSong = try makeSong(
+            title: "은혜 아니면",
+            fileName: "청년부_콘티.pdf",
+            musicalKey: .gMajor,
+            isFavorite: true
+        ).song
+        let wrongKeySong = try makeSong(
+            title: "은혜로다",
+            fileName: "청년부_콘티.pdf",
+            musicalKey: .aMajor,
+            isFavorite: true
+        ).song
+        let notFavoriteSong = try makeSong(
+            title: "은혜",
+            fileName: "청년부_콘티.pdf",
+            musicalKey: .gMajor,
+            isFavorite: false
+        ).song
+        let filter = SongSearchFilter(
+            query: "청년부 콘티",
+            musicalKey: .gMajor,
+            favoritesOnly: true
+        )
+
+        let matches = SongSearchMatcher.filter(
+            [wrongKeySong, matchingSong, notFavoriteSong],
+            using: filter
+        )
+
+        XCTAssertEqual(matches.map(\.id), [matchingSong.id])
+    }
+
+    func testCachedPDFNameRefreshesWhenDocumentNameChanges() throws {
+        let models = try makeSong(
+            title: "파일명 변경",
+            fileName: "이전_콘티.pdf"
+        )
         let cache = SongSearchTextCache(maximumEntryCount: 4)
 
         XCTAssertTrue(SongSearchMatcher.matches(
-            song,
-            filter: SongSearchFilter(query: "오프닝"),
+            models.song,
+            filter: SongSearchFilter(query: "이전 콘티"),
             searchTextCache: cache
         ))
 
-        song.notes = "마지막 파송곡"
+        models.document.originalFileName = "새로운_콘티.pdf"
 
         XCTAssertFalse(SongSearchMatcher.matches(
-            song,
-            filter: SongSearchFilter(query: "오프닝"),
+            models.song,
+            filter: SongSearchFilter(query: "이전 콘티"),
             searchTextCache: cache
         ))
         XCTAssertTrue(SongSearchMatcher.matches(
-            song,
-            filter: SongSearchFilter(query: "파송곡"),
+            models.song,
+            filter: SongSearchFilter(query: "새로운 콘티"),
             searchTextCache: cache
         ))
-    }
-
-    func testSearchTextCacheNeverExceedsConfiguredEntryLimit() {
-        let cache = SongSearchTextCache(maximumEntryCount: 2)
-        let first = Song(title: "첫째", lyricsText: "은혜")
-        let second = Song(title: "둘째", lyricsText: "사랑")
-        let third = Song(title: "셋째", lyricsText: "소망")
-        let query = SongSearchFilter(query: "없는 단서")
-
-        _ = SongSearchMatcher.matches(first, filter: query, searchTextCache: cache)
-        _ = SongSearchMatcher.matches(second, filter: query, searchTextCache: cache)
-        _ = SongSearchMatcher.matches(third, filter: query, searchTextCache: cache)
-
-        XCTAssertEqual(cache.cachedEntryCount, 2)
-        XCTAssertFalse(cache.contains(songID: first.id))
-        XCTAssertTrue(cache.contains(songID: second.id))
-        XCTAssertTrue(cache.contains(songID: third.id))
     }
 
     func testCachedFirstEvaluationPreservesOriginalResultOrder() {
@@ -142,17 +142,50 @@ final class SongSearchMatcherTests: XCTestCase {
         XCTAssertEqual(cache.cachedEntryCount, 1)
     }
 
-    func testCombinesQueryAndFavoriteFilters() {
-        let matchingSong = Song(title: "은혜 아니면", isFavorite: true)
-        let unrelatedSong = Song(title: "주 사랑", isFavorite: true)
-        let notFavoriteSong = Song(title: "은혜로다", isFavorite: false)
-        let filter = SongSearchFilter(query: "은혜", favoritesOnly: true)
+    func testSearchTextCacheNeverExceedsConfiguredEntryLimit() {
+        let cache = SongSearchTextCache(maximumEntryCount: 2)
+        let first = Song(title: "첫째")
+        let second = Song(title: "둘째")
+        let third = Song(title: "셋째")
+        let query = SongSearchFilter(query: "없는 단서")
 
-        let matches = SongSearchMatcher.filter(
-            [unrelatedSong, matchingSong, notFavoriteSong],
-            using: filter
+        _ = SongSearchMatcher.matches(first, filter: query, searchTextCache: cache)
+        _ = SongSearchMatcher.matches(second, filter: query, searchTextCache: cache)
+        _ = SongSearchMatcher.matches(third, filter: query, searchTextCache: cache)
+
+        XCTAssertEqual(cache.cachedEntryCount, 2)
+        XCTAssertFalse(cache.contains(songID: first.id))
+        XCTAssertTrue(cache.contains(songID: second.id))
+        XCTAssertTrue(cache.contains(songID: third.id))
+    }
+
+    private func makeSong(
+        title: String,
+        fileName: String,
+        musicalKey: MusicalKey = .cMajor,
+        isFavorite: Bool = false
+    ) throws -> (
+        document: ArchiveDocument,
+        song: Song,
+        sheet: SongSheet
+    ) {
+        let document = ArchiveDocument(
+            originalFileName: fileName,
+            storedFileName: "\(UUID().uuidString).pdf",
+            pageCount: 1,
+            fileSize: 1,
+            checksum: UUID().uuidString
         )
-
-        XCTAssertEqual(matches.map(\.id), [matchingSong.id])
+        let song = Song(title: title, isFavorite: isFavorite)
+        let sheet = try SongSheet.create(
+            startPageIndex: 0,
+            endPageIndex: 0,
+            musicalKey: musicalKey,
+            document: document,
+            song: song
+        )
+        song.sheets = [sheet]
+        document.sheets = [sheet]
+        return (document, song, sheet)
     }
 }

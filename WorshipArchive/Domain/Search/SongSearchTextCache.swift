@@ -2,13 +2,11 @@ import Foundation
 
 nonisolated struct SongSearchableText: Equatable, Sendable {
     let title: String
-    let lyrics: String
-    let notes: String
+    let pdfFileNames: String
 
     func contains(_ query: String) -> Bool {
         title.contains(query)
-            || lyrics.contains(query)
-            || notes.contains(query)
+            || pdfFileNames.contains(query)
     }
 }
 
@@ -18,8 +16,7 @@ final class SongSearchTextCache {
 
     private struct SourceSnapshot: Equatable {
         let normalizedTitle: String
-        let lyricsText: String
-        let notes: String
+        let pdfFileNames: [String]
     }
 
     private struct Entry {
@@ -52,8 +49,7 @@ final class SongSearchTextCache {
     func searchableText(for song: Song) -> SongSearchableText {
         let source = SourceSnapshot(
             normalizedTitle: song.normalizedTitle,
-            lyricsText: song.lyricsText,
-            notes: song.notes
+            pdfFileNames: PDFFileNameSearch.names(for: song)
         )
 
         if let cached = entries[song.id], cached.source == source {
@@ -62,8 +58,9 @@ final class SongSearchTextCache {
 
         let searchableText = SongSearchableText(
             title: source.normalizedTitle,
-            lyrics: SearchTextNormalizer.normalize(source.lyricsText),
-            notes: SearchTextNormalizer.normalize(source.notes)
+            pdfFileNames: source.pdfFileNames
+                .flatMap(PDFFileNameSearch.searchableVariants)
+                .joined(separator: " ")
         )
         store(
             Entry(source: source, searchableText: searchableText),
@@ -86,5 +83,27 @@ final class SongSearchTextCache {
         entries.removeValue(forKey: evictedSongID)
         insertionOrder[nextEvictionIndex] = songID
         nextEvictionIndex = (nextEvictionIndex + 1) % maximumEntryCount
+    }
+}
+
+nonisolated enum PDFFileNameSearch {
+    static func names(for song: Song) -> [String] {
+        Array(Set(
+            song.sheets?.compactMap { sheet in
+                sheet.document?.originalFileName
+            } ?? []
+        ))
+        .sorted { lhs, rhs in
+            lhs.localizedStandardCompare(rhs) == .orderedAscending
+        }
+    }
+
+    static func searchableVariants(for fileName: String) -> [String] {
+        let normalized = SearchTextNormalizer.normalize(fileName)
+        let words = SearchTextNormalizer.normalize(
+            fileName.replacingOccurrences(of: "_", with: " ")
+                .replacingOccurrences(of: "-", with: " ")
+        )
+        return normalized == words ? [normalized] : [normalized, words]
     }
 }

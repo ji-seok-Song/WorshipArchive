@@ -30,15 +30,11 @@ enum ArchiveLibraryEditing {
         )
         sheet.musicalKey = musicalKey
         sheet.recognizedText = recognizedText(for: sheet)
-        refreshSearchableLyrics(for: sheet.song)
         try context.save()
     }
 
     static func deleteSheet(_ sheet: SongSheet, in context: ModelContext) throws {
-        let song = sheet.song
-        let remainingSheets = (song?.sheets ?? []).filter { $0.id != sheet.id }
         context.delete(sheet)
-        refreshSearchableLyrics(for: song, using: remainingSheets)
         try context.save()
     }
 
@@ -55,19 +51,13 @@ enum ArchiveLibraryEditing {
         guard source.id != target.id else { throw ArchiveEditingError.sameSong }
 
         let movedSheets = source.sheets ?? []
-        let movedRecords = source.performanceRecords ?? []
-        let combinedSheets = (target.sheets ?? []) + movedSheets
 
         for sheet in movedSheets {
             sheet.song = target
         }
-        for record in movedRecords {
-            record.song = target
-        }
 
         target.isFavorite = target.isFavorite || source.isFavorite
         target.notes = combinedText(target.notes, source.notes)
-        refreshSearchableLyrics(for: target, using: combinedSheets)
         context.delete(source)
         try context.save()
     }
@@ -86,8 +76,6 @@ enum ArchiveLibraryEditing {
             }
             if remainingSheets.isEmpty {
                 context.delete(song)
-            } else {
-                refreshSearchableLyrics(for: song, using: remainingSheets)
             }
         }
 
@@ -106,17 +94,6 @@ enum ArchiveLibraryEditing {
             }
             .sorted { $0.pageIndex < $1.pageIndex }
             .map(\.extractedText)
-            .filter { !$0.isEmpty }
-            .joined(separator: "\n\n")
-    }
-
-    private static func refreshSearchableLyrics(
-        for song: Song?,
-        using sheets: [SongSheet]? = nil
-    ) {
-        guard let song else { return }
-        song.lyricsText = (sheets ?? (song.sheets ?? []))
-            .map(\.recognizedText)
             .filter { !$0.isEmpty }
             .joined(separator: "\n\n")
     }

@@ -6,6 +6,8 @@ final class Song {
     var id: UUID = UUID()
     private(set) var title: String = ""
     private(set) var normalizedTitle: String = ""
+    // Retained only so existing SwiftData and CloudKit stores remain compatible.
+    // New imports do not populate or search this legacy field.
     var lyricsText: String = ""
     var notes: String = ""
     var isFavorite: Bool = false
@@ -15,13 +17,14 @@ final class Song {
     @Relationship(deleteRule: .cascade, inverse: \SongSheet.song)
     var sheets: [SongSheet]?
 
+    // Retained only for compatibility with stores created before the feature
+    // was removed. No user-facing flow creates or displays these records.
     @Relationship(deleteRule: .cascade, inverse: \PerformanceRecord.song)
     var performanceRecords: [PerformanceRecord]?
 
     init(
         id: UUID = UUID(),
         title: String,
-        lyricsText: String = "",
         notes: String = "",
         isFavorite: Bool = false,
         createdAt: Date = Date()
@@ -29,7 +32,6 @@ final class Song {
         self.id = id
         self.title = title
         normalizedTitle = SearchTextNormalizer.normalize(title)
-        self.lyricsText = lyricsText
         self.notes = notes
         self.isFavorite = isFavorite
         self.createdAt = createdAt
