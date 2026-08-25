@@ -110,6 +110,37 @@ final class SongDraftSuggesterTests: XCTestCase {
         XCTAssertEqual(suggestions.first?.endPageNumber, 2)
     }
 
+    func testSmallOCRErrorInRepeatedTitleDoesNotSplitSong() {
+        let suggestions = suggester.suggest(
+            pages: [
+                page(index: 0, title: "우리 주 안에서 노래하며", confidence: 0.96),
+                page(index: 1, title: "우리 주 안에서 노래하머", confidence: 0.79),
+                page(index: 2, title: "정결한 맘 주시옵소서", confidence: 0.92)
+            ],
+            originalFileName: "주일 악보.pdf",
+            documentPageCount: 3
+        )
+
+        XCTAssertEqual(suggestions.map(\.title), ["우리 주 안에서 노래하며", "정결한 맘 주시옵소서"])
+        XCTAssertEqual(suggestions.first?.endPageNumber, 2)
+    }
+
+    func testNumberedRecurringScoreMarkDoesNotSplitPages() {
+        let suggestions = suggester.suggest(
+            pages: [
+                page(index: 0, title: "주의 약속하신 말씀 위에 서", confidence: 0.98),
+                page(index: 1, title: "AYMMS1", confidence: 0.78),
+                page(index: 2, title: "AYMMS2", confidence: 0.78),
+                page(index: 3, title: "다음 찬양", confidence: 0.94)
+            ],
+            originalFileName: "주일 악보.pdf",
+            documentPageCount: 4
+        )
+
+        XCTAssertEqual(suggestions.map(\.title), ["주의 약속하신 말씀 위에 서", "다음 찬양"])
+        XCTAssertEqual(suggestions.map(\.startPageNumber), [1, 4])
+    }
+
     private func page(
         index: Int,
         title: String?,

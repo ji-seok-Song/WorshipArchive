@@ -234,6 +234,14 @@ actor LocalPDFAnalyzer: PDFAnalyzing {
         let medianHeight = heights.isEmpty ? 0 : heights[heights.count / 2]
         let maximumHeight = heights.last ?? 0
 
+        if isFocusedTitleRegion,
+           let combinedCandidate = combinedFocusedTitleCandidate(
+               from: plausibleLines,
+               maximumHeight: maximumHeight
+           ) {
+            return combinedCandidate
+        }
+
         let rankedLines = plausibleLines.sorted { lhs, rhs in
             titleLineScore(lhs, maximumHeight: maximumHeight)
                 > titleLineScore(rhs, maximumHeight: maximumHeight)
@@ -255,6 +263,48 @@ actor LocalPDFAnalyzer: PDFAnalyzing {
             )
         }
         return titleCandidate(from: fallbackText, confidence: 0.62)
+    }
+
+    private func combinedFocusedTitleCandidate(
+        from lines: [RecognizedTextLine],
+        maximumHeight: CGFloat
+    ) -> TitleCandidate? {
+        guard maximumHeight > 0 else { return nil }
+        let prominentLines = lines
+            .filter { line in
+                let centerDistance = abs(line.boundingBox.midX - 0.5)
+                return line.boundingBox.height >= maximumHeight * 0.68
+                    && centerDistance <= 0.24
+            }
+            .sorted { $0.boundingBox.maxY > $1.boundingBox.maxY }
+        guard prominentLines.count >= 2 else { return nil }
+
+        for index in 0..<(prominentLines.count - 1) {
+            let upper = prominentLines[index]
+            let lower = prominentLines[index + 1]
+            let verticalGap = upper.boundingBox.minY - lower.boundingBox.maxY
+            guard (-0.03...0.24).contains(verticalGap) else { continue }
+            guard containsHangul(upper.text) == containsHangul(lower.text) else {
+                continue
+            }
+
+            let combined = "\(cleanedTitle(upper.text)) \(cleanedTitle(lower.text))"
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard isPlausibleTitle(combined), combined.count <= 80 else { continue }
+
+            return TitleCandidate(
+                text: combined,
+                confidence: min(max(min(upper.confidence, lower.confidence), 0.78), 1)
+            )
+        }
+        return nil
+    }
+
+    private func containsHangul(_ value: String) -> Bool {
+        value.unicodeScalars.contains { scalar in
+            (0xAC00...0xD7A3).contains(scalar.value)
+                || (0x3131...0x318E).contains(scalar.value)
+        }
     }
 
     private func recognizeFocusedTitle(on page: PDFPage) async throws -> TitleCandidate? {

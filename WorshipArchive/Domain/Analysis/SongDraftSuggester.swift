@@ -16,7 +16,7 @@ nonisolated struct SongDraftSuggester: Sendable {
 
         let recurringMarks = recurringShortLatinMarks(in: pages)
         var starts: [(pageIndex: Int, title: String, confidence: Double)] = []
-        var previousNormalizedTitle: String?
+        var previousComparableTitle: String?
 
         for page in pages.sorted(by: { $0.pageIndex < $1.pageIndex }) {
             guard (0..<documentPageCount).contains(page.pageIndex) else { continue }
@@ -25,11 +25,13 @@ nonisolated struct SongDraftSuggester: Sendable {
 
             let title = candidate.text.trimmingCharacters(in: .whitespacesAndNewlines)
             let normalizedTitle = SearchTextNormalizer.normalize(title)
+            let comparableTitle = comparableTitle(normalizedTitle)
             guard !normalizedTitle.isEmpty else { continue }
-            guard !recurringMarks.contains(normalizedTitle) else { continue }
-            guard normalizedTitle != previousNormalizedTitle else { continue }
-            guard strippingTrailingPageNumber(from: normalizedTitle)
-                    != previousNormalizedTitle else {
+            guard !comparableTitle.isEmpty else { continue }
+            guard !recurringMarks.contains(comparableTitle) else { continue }
+            guard previousComparableTitle.map({
+                !looksLikeSameTitle(comparableTitle, $0)
+            }) ?? true else {
                 continue
             }
 
@@ -38,7 +40,7 @@ nonisolated struct SongDraftSuggester: Sendable {
                 title: title,
                 confidence: min(max(candidate.confidence, 0), 1)
             ))
-            previousNormalizedTitle = normalizedTitle
+            previousComparableTitle = comparableTitle
         }
 
         guard !starts.isEmpty else {
@@ -66,7 +68,9 @@ nonisolated struct SongDraftSuggester: Sendable {
     private func recurringShortLatinMarks(in pages: [AnalyzedPage]) -> Set<String> {
         let candidates = pages.compactMap { page -> (normalized: String, original: String)? in
             guard let title = page.titleCandidate?.text else { return nil }
-            let normalized = SearchTextNormalizer.normalize(title)
+            let normalized = comparableTitle(
+                strippingTrailingPageNumber(from: SearchTextNormalizer.normalize(title))
+            )
             guard !normalized.isEmpty else { return nil }
             return (normalized, title)
         }
@@ -89,6 +93,52 @@ nonisolated struct SongDraftSuggester: Sendable {
             characters.removeLast()
         }
         return String(characters)
+    }
+
+    private func comparableTitle(_ value: String) -> String {
+        strippingTrailingPageNumber(from: value)
+            .lowercased()
+            .filter { $0.isLetter || $0.isNumber }
+    }
+
+    private func looksLikeSameTitle(_ lhs: String, _ rhs: String) -> Bool {
+        guard !lhs.isEmpty, !rhs.isEmpty else { return false }
+        if lhs == rhs { return true }
+
+        let shorterCount = min(lhs.count, rhs.count)
+        let longerCount = max(lhs.count, rhs.count)
+        if shorterCount >= 5,
+           abs(lhs.count - rhs.count) <= 2,
+           (lhs.hasPrefix(rhs) || rhs.hasPrefix(lhs)) {
+            return true
+        }
+
+        guard shorterCount >= 6, longerCount - shorterCount <= 3 else {
+            return false
+        }
+        let distance = editDistance(Array(lhs), Array(rhs))
+        let similarity = 1 - Double(distance) / Double(longerCount)
+        return similarity >= 0.82
+    }
+
+    private func editDistance(_ lhs: [Character], _ rhs: [Character]) -> Int {
+        guard !lhs.isEmpty else { return rhs.count }
+        guard !rhs.isEmpty else { return lhs.count }
+
+        var previous = Array(0...rhs.count)
+        for (lhsIndex, lhsCharacter) in lhs.enumerated() {
+            var current = Array(repeating: 0, count: rhs.count + 1)
+            current[0] = lhsIndex + 1
+            for (rhsIndex, rhsCharacter) in rhs.enumerated() {
+                current[rhsIndex + 1] = min(
+                    current[rhsIndex] + 1,
+                    previous[rhsIndex + 1] + 1,
+                    previous[rhsIndex] + (lhsCharacter == rhsCharacter ? 0 : 1)
+                )
+            }
+            previous = current
+        }
+        return previous[rhs.count]
     }
 
     private func fallbackSuggestion(
