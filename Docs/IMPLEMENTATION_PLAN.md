@@ -47,7 +47,7 @@
 10. `feat: build searchable song library`
     - 곡 제목·원본 PDF 이름 검색, 키 필터, 즐겨찾기가 동작한다.
 11. `feat: open song ranges in PDF viewer`
-    - 선택한 곡의 시작 페이지로 열고 마지막 페이지를 기억한다.
+    - 라이브러리·검색에서 곡을 선택하면 상세 화면 없이 악보를 바로 열고 마지막 페이지를 기억한다.
 12. `feat: simplify search around songs, PDF names, and keys`
     - 가사·예배 기록 없이 곡 제목, 원본 PDF 이름, 키를 중심으로 빠르게 찾는다.
 13. `feat: sync archives with CloudKit`

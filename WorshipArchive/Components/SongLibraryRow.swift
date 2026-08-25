@@ -64,7 +64,7 @@ struct SongLibraryRow<Destination: View>: View {
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel(title)
                 .accessibilityValue(subtitle)
-                .accessibilityHint("곡 상세 화면을 엽니다")
+                .accessibilityHint("곡의 악보 PDF를 엽니다")
             }
             .buttonStyle(.plain)
 

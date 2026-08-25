@@ -11,6 +11,7 @@ struct PDFViewerView: View {
 
     let document: ArchiveDocument
     let sheet: SongSheet?
+    private let fileAccess: any StoredPDFAccessing
 
     @State private var loader: PDFViewerLoader
     @State private var loadRequestID = UUID()
@@ -32,6 +33,7 @@ struct PDFViewerView: View {
     ) {
         self.document = document
         self.sheet = sheet
+        self.fileAccess = fileAccess
         _loader = State(
             initialValue: PDFViewerLoader(fileAccess: fileAccess)
         )
@@ -67,7 +69,7 @@ struct PDFViewerView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if sheet != nil {
-                ToolbarItem(placement: .primaryAction) {
+                ToolbarItemGroup(placement: .primaryAction) {
                     if isExportingSongPDF {
                         ProgressView()
                             .controlSize(.small)
@@ -77,6 +79,17 @@ struct PDFViewerView: View {
                             exportRequestID = UUID()
                         }
                         .disabled(!canExportSongPDF)
+                    }
+
+                    if let song = sheet?.song {
+                        NavigationLink {
+                            SongDetailView(
+                                song: song,
+                                fileAccess: fileAccess
+                            )
+                        } label: {
+                            Label("곡 관리", systemImage: "ellipsis.circle")
+                        }
                     }
                 }
             }

@@ -195,6 +195,7 @@ private struct RecentScoreRow: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 14)
                 .padding(.leading, 14)
+                .padding(.trailing, 14)
                 .contentShape(.rect)
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel(entry.song.title)
@@ -202,22 +203,6 @@ private struct RecentScoreRow: View {
                 .accessibilityHint("마지막으로 본 페이지부터 악보를 엽니다")
             }
             .buttonStyle(.plain)
-
-            NavigationLink {
-                SongDetailView(
-                    song: entry.song,
-                    fileAccess: fileAccess
-                )
-            } label: {
-                Image(systemName: "info.circle")
-                    .font(.title3)
-                    .foregroundStyle(ArchiveTheme.tint)
-                    .frame(width: 44, height: 44)
-            }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 8)
-            .accessibilityLabel("\(entry.song.title) 곡 정보")
-            .accessibilityHint("곡 상세 화면을 엽니다")
         }
         .background(ArchiveTheme.surface, in: .rect(cornerRadius: 16))
     }

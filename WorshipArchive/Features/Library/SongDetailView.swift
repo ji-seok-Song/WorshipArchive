@@ -179,14 +179,6 @@ private struct SongDetailContent: View {
 
     var body: some View {
         List {
-            Section {
-                LabeledContent("등록된 악보", value: "\(sheets.count)개")
-                LabeledContent(
-                    "등록일",
-                    value: song.createdAt.formatted(date: .abbreviated, time: .omitted)
-                )
-            }
-
             SongSheetsSection(
                 sheets: sheets,
                 fileAccess: fileAccess,
@@ -243,7 +235,7 @@ private struct EditableSongSheetRow: View {
                     fileAccess: fileAccess
                 )
             } label: {
-                SongSheetRow(sheet: sheet, document: document)
+                SongSheetRow(sheet: sheet)
             }
             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                 Button("삭제", systemImage: "trash", role: .destructive, action: delete)
@@ -484,7 +476,6 @@ private struct SongSheetEditForm: View {
 
 private struct SongSheetRow: View {
     let sheet: SongSheet
-    let document: ArchiveDocument
 
     var body: some View {
         HStack(spacing: 12) {
@@ -496,7 +487,7 @@ private struct SongSheetRow: View {
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(document.originalFileName)
+                Text(sheet.song?.title ?? "악보")
                     .font(.headline)
                     .lineLimit(1)
 

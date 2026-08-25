@@ -127,7 +127,10 @@ struct LibraryView: View {
                                 toggleFavorite(for: song)
                             }
                         ) {
-                            SongDetailView(song: song, fileAccess: fileAccess)
+                            SongPDFDestinationView(
+                                song: song,
+                                fileAccess: fileAccess
+                            )
                         }
                     }
                 }
