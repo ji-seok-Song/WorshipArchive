@@ -67,10 +67,7 @@ final class ArchiveWorkflowIntegrationTests: XCTestCase {
 
         let matches = SongSearchMatcher.filter(
             songs,
-            using: SongSearchFilter(
-                query: "끝없는 은혜",
-                musicalKey: .gMajor
-            )
+            using: SongSearchFilter(query: "끝없는 은혜")
         )
         let matchedSong = try XCTUnwrap(matches.first)
         XCTAssertEqual(matches.count, 1)

@@ -3,59 +3,6 @@ import XCTest
 @testable import WorshipArchive
 
 final class PerformanceRecordTests: XCTestCase {
-    func testDateRangeIncludesEntireLastCalendarDay() throws {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Seoul"))
-        let startDate = try XCTUnwrap(calendar.date(
-            from: DateComponents(year: 2026, month: 8, day: 18, hour: 16)
-        ))
-        let endDate = try XCTUnwrap(calendar.date(
-            from: DateComponents(year: 2026, month: 8, day: 20, hour: 8)
-        ))
-        let finalMoment = try XCTUnwrap(calendar.date(
-            from: DateComponents(
-                year: 2026,
-                month: 8,
-                day: 20,
-                hour: 23,
-                minute: 59,
-                second: 59
-            )
-        ))
-        let followingMidnight = try XCTUnwrap(calendar.date(
-            from: DateComponents(year: 2026, month: 8, day: 21)
-        ))
-
-        let range = try PerformanceDateRange(
-            startDate: startDate,
-            endDate: endDate,
-            calendar: calendar
-        )
-
-        XCTAssertTrue(range.contains(startDate))
-        XCTAssertTrue(range.contains(finalMoment))
-        XCTAssertFalse(range.contains(followingMidnight))
-    }
-
-    func testDateRangeRejectsReversedCalendarDays() throws {
-        let calendar = Calendar(identifier: .gregorian)
-        let laterDate = Date(timeIntervalSince1970: 200_000)
-        let earlierDate = Date(timeIntervalSince1970: 100_000)
-
-        XCTAssertThrowsError(
-            try PerformanceDateRange(
-                startDate: laterDate,
-                endDate: earlierDate,
-                calendar: calendar
-            )
-        ) { error in
-            XCTAssertEqual(
-                error as? PerformanceDateRangeError,
-                .reversedRange
-            )
-        }
-    }
-
     func testDraftTrimsServiceTypeAndOptionalText() {
         let draft = PerformanceRecordDraft(
             performedAt: Date(),

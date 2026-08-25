@@ -3,7 +3,7 @@ import XCTest
 
 final class SongSearchContentRevisionTests: XCTestCase {
     @MainActor
-    func testRawTextChangeInvalidatesSameFilterRequestAndMatcherResult() {
+    func testSearchableContentChangeInvalidatesSameQueryRequest() {
         let song = Song(
             title: "원래 제목",
             lyricsText: "기존 가사",
@@ -42,111 +42,14 @@ final class SongSearchContentRevisionTests: XCTestCase {
     }
 
     @MainActor
-    func testSheetKeyChangeInvalidatesSameFilterRequest() throws {
-        let models = try makeModels()
-        let before = makeRequest(songs: [models.song])
-
-        models.sheet.musicalKey = .aMajor
-        let after = makeRequest(songs: [models.song])
-
-        XCTAssertNotEqual(before, after)
-    }
-
-    @MainActor
-    func testPerformanceSearchValuesInvalidateSameFilterRequest() throws {
-        let models = try makeModels()
-        let record = PerformanceRecord(
-            id: UUID(uuidString: "00000000-0000-0000-0000-000000000010")!,
-            performedAt: Date(timeIntervalSince1970: 100),
-            serviceType: "주일 예배",
-            song: models.song
-        )
-        models.song.performanceRecords = [record]
-        let before = makeRequest(songs: [models.song])
-
-        record.performedAt = Date(timeIntervalSince1970: 200)
-        let afterDate = makeRequest(songs: [models.song])
-        record.serviceType = "청년 예배"
-        let afterService = makeRequest(songs: [models.song])
-
-        XCTAssertNotEqual(before, afterDate)
-        XCTAssertNotEqual(afterDate, afterService)
-    }
-
-    @MainActor
-    func testRelationshipOrderingDoesNotChangeRequestIdentity() throws {
-        let models = try makeModels()
-        let otherSheet = try SongSheet.create(
-            id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,
-            startPageIndex: 1,
-            endPageIndex: 1,
-            musicalKey: .aMajor,
-            document: models.document,
-            song: models.song
-        )
-        let firstRecord = PerformanceRecord(
-            id: UUID(uuidString: "00000000-0000-0000-0000-000000000011")!,
-            performedAt: Date(timeIntervalSince1970: 100),
-            serviceType: "주일 예배",
-            song: models.song
-        )
-        let secondRecord = PerformanceRecord(
-            id: UUID(uuidString: "00000000-0000-0000-0000-000000000012")!,
-            performedAt: Date(timeIntervalSince1970: 200),
-            serviceType: "청년 예배",
-            song: models.song
-        )
-        models.song.sheets = [otherSheet, models.sheet]
-        models.song.performanceRecords = [secondRecord, firstRecord]
-        let firstOrder = makeRequest(songs: [models.song])
-
-        models.song.sheets = [models.sheet, otherSheet]
-        models.song.performanceRecords = [firstRecord, secondRecord]
-        let reversedOrder = makeRequest(songs: [models.song])
-
-        XCTAssertEqual(firstOrder, reversedOrder)
-    }
-
-    @MainActor
     private func makeRequest(
         songs: [Song],
         query: String = "은혜"
     ) -> SongSearchRefreshRequest {
         SongSearchRefreshRequest(
             query: query,
-            selectedKey: .gMajor,
-            usesPerformanceDateFilter: false,
-            performanceStartDate: Date(timeIntervalSince1970: 0),
-            performanceEndDate: Date(timeIntervalSince1970: 1_000),
-            selectedServiceType: "",
             contentRevisions: SongSearchContentRevision.capture(songs),
             refreshID: UUID(uuidString: "00000000-0000-0000-0000-000000000099")!
         )
-    }
-
-    @MainActor
-    private func makeModels() throws -> (
-        document: ArchiveDocument,
-        song: Song,
-        sheet: SongSheet
-    ) {
-        let document = ArchiveDocument(
-            originalFileName: "score.pdf",
-            storedFileName: "stored.pdf",
-            pageCount: 2,
-            fileSize: 100,
-            checksum: "checksum"
-        )
-        let song = Song(title: "은혜")
-        let sheet = try SongSheet.create(
-            id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
-            startPageIndex: 0,
-            endPageIndex: 0,
-            musicalKey: .gMajor,
-            document: document,
-            song: song
-        )
-        song.sheets = [sheet]
-        return (document, song, sheet)
     }
 }
