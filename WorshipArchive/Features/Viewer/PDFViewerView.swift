@@ -19,6 +19,11 @@ struct PDFViewerView: View {
     @State private var isPerformanceMode = false
     @State private var prefersTwoPageLayout = true
     @State private var idleTimerLease: UUID?
+    @State private var pdfExporter: SongPDFExporter
+    @State private var exportRequestID: UUID?
+    @State private var exportedSongPDF: ExportedSongPDF?
+    @State private var isExportingSongPDF = false
+    @State private var exportErrorMessage: String?
 
     init(
         document: ArchiveDocument,
@@ -29,6 +34,9 @@ struct PDFViewerView: View {
         self.sheet = sheet
         _loader = State(
             initialValue: PDFViewerLoader(fileAccess: fileAccess)
+        )
+        _pdfExporter = State(
+            initialValue: SongPDFExporter(fileAccess: fileAccess)
         )
     }
 
@@ -57,10 +65,30 @@ struct PDFViewerView: View {
         }
         .navigationTitle(viewerTitle)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if sheet != nil {
+                ToolbarItem(placement: .primaryAction) {
+                    if isExportingSongPDF {
+                        ProgressView()
+                            .controlSize(.small)
+                            .accessibilityLabel("곡 PDF 만드는 중")
+                    } else {
+                        Button("곡 PDF 공유", systemImage: "square.and.arrow.up") {
+                            exportRequestID = UUID()
+                        }
+                        .disabled(!canExportSongPDF)
+                    }
+                }
+            }
+        }
         .toolbar(isPerformanceMode ? .hidden : .visible, for: .navigationBar)
         .persistentSystemOverlays(isPerformanceMode ? .hidden : .automatic)
         .task(id: loadRequestID) {
             await loadDocument()
+        }
+        .task(id: exportRequestID) {
+            guard exportRequestID != nil else { return }
+            await exportSongPDF()
         }
         .onAppear {
             updateIdleTimerLease(
@@ -83,6 +111,11 @@ struct PDFViewerView: View {
         .onDisappear {
             loader.cancel()
             releaseIdleTimerLease()
+            if let exportedSongPDF {
+                Task {
+                    await pdfExporter.remove(exportedSongPDF)
+                }
+            }
         }
         .alert(
             "열람 기록을 저장하지 못했어요",
@@ -101,6 +134,36 @@ struct PDFViewerView: View {
         } message: {
             Text(persistenceErrorMessage ?? "알 수 없는 오류가 발생했습니다.")
         }
+        .alert(
+            "곡 PDF를 만들지 못했어요",
+            isPresented: Binding(
+                get: { exportErrorMessage != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        exportErrorMessage = nil
+                    }
+                }
+            )
+        ) {
+            Button("확인", role: .cancel) {
+                exportErrorMessage = nil
+            }
+        } message: {
+            Text(exportErrorMessage ?? "잠시 후 다시 시도해 주세요.")
+        }
+        .sheet(item: $exportedSongPDF) { exportedPDF in
+            PDFShareSheet(fileURL: exportedPDF.fileURL) {
+                exportedSongPDF = nil
+                Task {
+                    await pdfExporter.remove(exportedPDF)
+                }
+            }
+            .onDisappear {
+                Task {
+                    await pdfExporter.remove(exportedPDF)
+                }
+            }
+        }
     }
 
     private var viewerTitle: String {
@@ -112,6 +175,62 @@ struct PDFViewerView: View {
             .deletingPathExtension()
             .lastPathComponent
         return fileName.isEmpty ? "악보" : fileName
+    }
+
+    private var canExportSongPDF: Bool {
+        guard sheet != nil else { return false }
+        if case .loaded = loader.phase {
+            return true
+        }
+        return false
+    }
+
+    private func exportSongPDF() async {
+        guard let sheet else { return }
+
+        isExportingSongPDF = true
+        exportErrorMessage = nil
+        defer {
+            isExportingSongPDF = false
+        }
+
+        do {
+            if let exportedSongPDF {
+                await pdfExporter.remove(exportedSongPDF)
+                self.exportedSongPDF = nil
+            }
+
+            let exportedPDF = try await pdfExporter.export(
+                SongPDFExportRequest(
+                    storedFileName: document.storedFileName,
+                    checksum: document.checksum,
+                    expectedPageCount: document.pageCount,
+                    startPageIndex: sheet.startPageIndex,
+                    endPageIndex: sheet.endPageIndex,
+                    suggestedFileName: exportFileName(for: sheet)
+                )
+            )
+            if Task.isCancelled {
+                await pdfExporter.remove(exportedPDF)
+                return
+            }
+            exportedSongPDF = exportedPDF
+        } catch is CancellationError {
+            return
+        } catch {
+            exportErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func exportFileName(for sheet: SongSheet) -> String {
+        let title = sheet.song?.title.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        let baseName = (title?.isEmpty == false ? title : nil) ?? viewerTitle
+        guard let keyName = sheet.musicalKey?.displayName else {
+            return baseName
+        }
+        return "\(baseName) (\(keyName))"
     }
 
     private func scoreViewer(
