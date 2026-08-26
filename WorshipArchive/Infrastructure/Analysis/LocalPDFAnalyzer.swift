@@ -206,7 +206,7 @@ actor LocalPDFAnalyzer: PDFAnalyzing {
             try Task.checkCancellation()
             let pageIndex = suggestion.startPageNumber - 1
             guard let page = document.page(at: pageIndex),
-                  let image = render(page: page, maximumLongestSide: 1_600),
+                  let image = render(page: page, maximumLongestSide: 2_400),
                   let detected = keySignatureDetector.detect(in: image),
                   let musicalKey = KeySignatureKeyMap.musicalKey(
                       for: detected.signature

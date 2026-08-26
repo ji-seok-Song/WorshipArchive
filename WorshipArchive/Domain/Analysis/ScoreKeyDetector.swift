@@ -12,6 +12,112 @@ nonisolated struct DetectedKeySignature: Equatable, Sendable {
     let confidence: Double
 }
 
+nonisolated struct KeySignatureEvidence: Equatable, Sendable {
+    let signature: KeySignature
+    let strength: Double
+}
+
+nonisolated enum KeySignatureConsensus {
+    private enum Family: Hashable {
+        case none
+        case sharps
+        case flats
+    }
+
+    static func resolve(
+        _ evidence: [KeySignatureEvidence]
+    ) -> DetectedKeySignature? {
+        guard !evidence.isEmpty else { return nil }
+
+        let rankedFamilies = Dictionary(grouping: evidence) { item in
+            family(for: item.signature)
+        }
+            .map { family, matchingEvidence in
+                (family: family, evidence: matchingEvidence)
+            }
+            .sorted { lhs, rhs in
+                if lhs.evidence.count != rhs.evidence.count {
+                    return lhs.evidence.count > rhs.evidence.count
+                }
+                return lhs.evidence.map(\.strength).reduce(0, +)
+                    > rhs.evidence.map(\.strength).reduce(0, +)
+            }
+        guard let winner = rankedFamilies.first else { return nil }
+        let runnerUpCount = rankedFamilies.dropFirst().first?.evidence.count ?? 0
+        guard winner.evidence.count > runnerUpCount else { return nil }
+
+        let agreement = Double(winner.evidence.count) / Double(evidence.count)
+        let signature: KeySignature
+        let supportingEvidence: [KeySignatureEvidence]
+        switch winner.family {
+        case .none:
+            // A missed symbol must not silently become C. Blank key signatures
+            // need agreement from at least three independently located staves.
+            guard winner.evidence.count >= 3, agreement >= 0.6 else { return nil }
+            signature = .none
+            supportingEvidence = winner.evidence
+        case .sharps, .flats:
+            guard winner.evidence.count >= 2, agreement >= 0.4 else { return nil }
+            let counts = winner.evidence
+                .compactMap { accidentalCount(in: $0.signature) }
+                .sorted()
+            guard counts.count == winner.evidence.count,
+                  let minimumCount = counts.first,
+                  let maximumCount = counts.last,
+                  (1...6).contains(minimumCount),
+                  (1...6).contains(maximumCount)
+            else { return nil }
+
+            let medianCount = counts[counts.count / 2]
+            let exactCount = counts.filter { $0 == medianCount }.count
+            let nearbyCount = counts.filter { abs($0 - medianCount) <= 1 }.count
+            guard exactCount >= 2,
+                  Double(nearbyCount) / Double(counts.count) >= 0.75
+            else { return nil }
+
+            signature = winner.family == .sharps
+                ? .sharps(medianCount)
+                : .flats(medianCount)
+            supportingEvidence = winner.evidence.filter { item in
+                guard let count = accidentalCount(in: item.signature) else {
+                    return false
+                }
+                return abs(count - medianCount) <= 1
+            }
+        }
+
+        let averageStrength = supportingEvidence.map(\.strength).reduce(0, +)
+            / Double(supportingEvidence.count)
+        let normalizedStrength = min(max(averageStrength, 0), 1)
+        let confidence = min(
+            0.96,
+            0.62
+                + agreement * 0.22
+                + Double(min(supportingEvidence.count, 4)) * 0.025
+                + normalizedStrength * 0.08
+        )
+        return DetectedKeySignature(
+            signature: signature,
+            confidence: confidence
+        )
+    }
+
+    private static func family(for signature: KeySignature) -> Family {
+        switch signature {
+        case .none: .none
+        case .sharps: .sharps
+        case .flats: .flats
+        }
+    }
+
+    private static func accidentalCount(in signature: KeySignature) -> Int? {
+        switch signature {
+        case .none: nil
+        case .sharps(let count), .flats(let count): count
+        }
+    }
+}
+
 nonisolated struct ScoreKeySignatureDetector: Sendable {
     fileprivate struct StaffCandidate {
         let topLineY: Int
@@ -35,34 +141,20 @@ nonisolated struct ScoreKeySignatureDetector: Sendable {
     private let flatOffsets = [2.0, 0.5, 2.5, 1.0, 3.0, 1.5]
 
     func detect(in image: CGImage) -> DetectedKeySignature? {
-        guard let raster = GrayscaleRaster(image: image, maximumWidth: 1_200) else {
+        guard let raster = GrayscaleRaster(image: image, maximumWidth: 1_800) else {
             return nil
         }
 
-        let detections = staffCandidates(in: raster)
-            .prefix(6)
+        let evidence = staffCandidates(in: raster)
+            .prefix(10)
             .compactMap { detectSignature(on: $0, in: raster) }
-        guard let first = detections.first else { return nil }
-
-        // Key signatures repeat at the start of score systems. Requiring the
-        // first result to agree with another nearby system prevents a time
-        // signature or the first note from being mistaken for an accidental.
-        let corroborating = detections.dropFirst().prefix(2).filter {
-            $0.signature == first.signature
-        }
-        guard corroborating.count == 2 else { return nil }
-
-        let evidence = [first] + corroborating
-        let averageStrength = evidence.map(\.strength).reduce(0, +)
-            / Double(evidence.count)
-        let confidence = min(
-            0.96,
-            0.78 + Double(evidence.count - 1) * 0.07 + averageStrength * 0.08
-        )
-        return DetectedKeySignature(
-            signature: first.signature,
-            confidence: confidence
-        )
+            .map { detection in
+                KeySignatureEvidence(
+                    signature: detection.signature,
+                    strength: detection.strength
+                )
+            }
+        return KeySignatureConsensus.resolve(evidence)
     }
 
     private func staffCandidates(in raster: GrayscaleRaster) -> [StaffCandidate] {
@@ -128,7 +220,7 @@ nonisolated struct ScoreKeySignatureDetector: Sendable {
     ) -> StaffDetection? {
         let spacing = staff.spacing
         let clefWidth = spacing * 3
-        let maximumClefX = Int(Double(raster.width) * 0.35) - clefWidth
+        let maximumClefX = Int(Double(raster.width) * 0.28) - clefWidth
         guard maximumClefX > 0 else { return nil }
 
         var bestClefScore = 0.0
@@ -301,21 +393,25 @@ private nonisolated struct GrayscaleRaster {
         let scale = min(1, Double(maximumWidth) / Double(image.width))
         let targetWidth = max(1, Int((Double(image.width) * scale).rounded()))
         let targetHeight = max(1, Int((Double(image.height) * scale).rounded()))
-        var storage = Array(repeating: UInt8.max, count: targetWidth * targetHeight)
-        let didDraw = storage.withUnsafeMutableBytes { buffer -> Bool in
+        var colorStorage = Array(
+            repeating: UInt8.max,
+            count: targetWidth * targetHeight * 4
+        )
+        let didDraw = colorStorage.withUnsafeMutableBytes { buffer -> Bool in
             guard let baseAddress = buffer.baseAddress,
                   let context = CGContext(
                       data: baseAddress,
                       width: targetWidth,
                       height: targetHeight,
                       bitsPerComponent: 8,
-                      bytesPerRow: targetWidth,
-                      space: CGColorSpaceCreateDeviceGray(),
-                      bitmapInfo: CGImageAlphaInfo.none.rawValue
+                      bytesPerRow: targetWidth * 4,
+                      space: CGColorSpaceCreateDeviceRGB(),
+                      bitmapInfo: CGBitmapInfo.byteOrder32Big.rawValue
+                        | CGImageAlphaInfo.premultipliedLast.rawValue
                   )
             else { return false }
 
-            context.setFillColor(CGColor(gray: 1, alpha: 1))
+            context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
             context.fill(CGRect(x: 0, y: 0, width: targetWidth, height: targetHeight))
             context.interpolationQuality = .high
             context.draw(
@@ -325,6 +421,26 @@ private nonisolated struct GrayscaleRaster {
             return true
         }
         guard didDraw else { return nil }
+
+        var storage = Array(repeating: UInt8.max, count: targetWidth * targetHeight)
+        for pixelIndex in storage.indices {
+            let colorIndex = pixelIndex * 4
+            let red = Int(colorStorage[colorIndex])
+            let green = Int(colorStorage[colorIndex + 1])
+            let blue = Int(colorStorage[colorIndex + 2])
+            let maximum = max(red, green, blue)
+            let minimum = min(red, green, blue)
+            let chroma = maximum - minimum
+
+            // Printed notation is neutral black/gray. Saturated colored pen,
+            // highlighter and stage notes are removed before counting symbols.
+            if chroma >= 45, maximum >= 80 {
+                storage[pixelIndex] = .max
+            } else {
+                let luminance = (red * 54 + green * 183 + blue * 19) / 256
+                storage[pixelIndex] = UInt8(clamping: luminance)
+            }
+        }
         width = targetWidth
         height = targetHeight
         pixels = storage
@@ -334,7 +450,7 @@ private nonisolated struct GrayscaleRaster {
         guard (0..<width).contains(x), (0..<height).contains(y) else {
             return false
         }
-        return pixels[y * width + x] < 205
+        return pixels[y * width + x] < 210
     }
 
     func inkCount(xRange: Range<Int>, yRange: Range<Int>) -> Int {
