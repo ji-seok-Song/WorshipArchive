@@ -260,11 +260,19 @@ actor LocalPDFAnalyzer: PDFAnalyzing {
         fallbackText: String,
         isFocusedTitleRegion: Bool = false
     ) -> TitleCandidate? {
-        let plausibleLines = lines.filter { line in
+        let plausibleLines = lines.compactMap { line -> RecognizedTextLine? in
             let minimumY = isFocusedTitleRegion ? 0.3 : 0.65
-            return line.boundingBox.maxY >= minimumY
-                && isPlausibleTitle(line.text)
-                && !isScoreAnnotation(line.text)
+            guard line.boundingBox.maxY >= minimumY else { return nil }
+
+            let cleanedText = cleanedTitle(line.text)
+            guard isPlausibleTitle(cleanedText), !isScoreAnnotation(cleanedText) else {
+                return nil
+            }
+            return RecognizedTextLine(
+                text: cleanedText,
+                confidence: line.confidence,
+                boundingBox: line.boundingBox
+            )
         }
         let heights = plausibleLines.map { $0.boundingBox.height }.sorted()
         let medianHeight = heights.isEmpty ? 0 : heights[heights.count / 2]
@@ -294,7 +302,7 @@ actor LocalPDFAnalyzer: PDFAnalyzing {
                 ? max(line.confidence, 0.78)
                 : line.confidence
             return TitleCandidate(
-                text: cleanedTitle(line.text),
+                text: line.text,
                 confidence: min(max(confidence, 0), 1)
             )
         }
@@ -400,6 +408,7 @@ actor LocalPDFAnalyzer: PDFAnalyzing {
         let string = attributedText.string as NSString
         var location = 0
         var inspectedLineCount = 0
+        var encounteredProminentAnnotation = false
         while location < string.length, inspectedLineCount < 8 {
             let lineRange = string.lineRange(
                 for: NSRange(location: location, length: 0)
@@ -420,10 +429,19 @@ actor LocalPDFAnalyzer: PDFAnalyzing {
                 largestFontSize = max(largestFontSize, pointSize)
             }
 
-            if isPlausibleTitle(line),
-               largestFontSize >= bodyFontSize + 1.5,
-               largestFontSize >= bodyFontSize * 1.15 {
-                return TitleCandidate(text: cleanedTitle(line), confidence: 0.88)
+            let cleanedLine = cleanedTitle(line)
+            let isProminent = largestFontSize >= bodyFontSize + 1.5
+                && largestFontSize >= bodyFontSize * 1.15
+            let isAnnotation = isScoreAnnotation(cleanedLine)
+            if isProminent, isAnnotation {
+                encounteredProminentAnnotation = true
+            } else if isPlausibleTitle(cleanedLine), !isAnnotation {
+                if isProminent {
+                    return TitleCandidate(text: cleanedLine, confidence: 0.88)
+                }
+                if encounteredProminentAnnotation {
+                    return TitleCandidate(text: cleanedLine, confidence: 0.76)
+                }
             }
 
             location = NSMaxRange(lineRange)
@@ -441,7 +459,10 @@ actor LocalPDFAnalyzer: PDFAnalyzing {
             .split(whereSeparator: \Character.isNewline)
             .prefix(8)
             .map(String.init)
-            .first(where: isPlausibleTitle)
+            .map(cleanedTitle)
+            .first(where: { line in
+                isPlausibleTitle(line) && !isScoreAnnotation(line)
+            })
         else {
             return nil
         }
@@ -530,14 +551,49 @@ actor LocalPDFAnalyzer: PDFAnalyzing {
             "intro", "verse", "chorus", "bridge", "inter", "outro",
             "prechorus", "keychange", "keyup", "d.s.", "d.c.", "fine",
             "마디", "파트", "번째", "부터", "패턴", "section", "solo", "rit",
-            "mute", "brake", "drum"
+            "mute", "brake", "drum", "드럼박", "전주", "간주", "후렴",
+            "브릿지", "아웃트로"
         ]
         if sectionMarkers.contains(where: normalized.contains) {
             return true
         }
 
+        let songFormTokenCount = normalized
+            .split(whereSeparator: { "-–—>→/·,".contains($0) })
+            .map(String.init)
+            .filter(isSongFormToken)
+            .count
+        if songFormTokenCount >= 2 {
+            return true
+        }
+
         let separatorCount = normalized.filter { "-x>".contains($0) }.count
         return normalized.count >= 8 && separatorCount >= 2
+    }
+
+    private func isSongFormToken(_ value: String) -> Bool {
+        let token = value
+            .trimmingCharacters(in: CharacterSet(charactersIn: "()[]{}"))
+            .lowercased()
+        guard !token.isEmpty else { return false }
+
+        let base = token.drop(while: \Character.isNumber)
+        let withoutCounts = String(base.reversed().drop(while: { character in
+            character.isNumber || character == "x"
+        }).reversed())
+        let exactMarkers: Set<String> = [
+            "v", "v1", "v2", "v3", "c", "c1", "c2", "b", "b1", "b2",
+            "pc", "pre", "tag", "inst", "instrumental", "break"
+        ]
+        if exactMarkers.contains(token) || exactMarkers.contains(withoutCounts) {
+            return true
+        }
+
+        let prefixMarkers = [
+            "intro", "verse", "chorus", "bridge", "inter", "outro",
+            "prechorus"
+        ]
+        return prefixMarkers.contains(where: token.hasPrefix)
     }
 
     private func failedPage(
@@ -613,9 +669,10 @@ actor LocalPDFAnalyzer: PDFAnalyzing {
             return nil
         }
 
-        // Score sheets place the title in the shallow top band. Keeping staff
-        // lines and chord symbols out of this pass materially improves Korean OCR.
-        let titleRegionHeight = bounds.height * 0.11
+        // Real score sheets often put a song-form line above the title and some
+        // titles cross the old 11% boundary. A wider header keeps the complete
+        // title; candidate filtering removes song forms and score annotations.
+        let titleRegionHeight = bounds.height * 0.22
         let titleRegion = CGRect(
             x: bounds.minX,
             y: bounds.maxY - titleRegionHeight,

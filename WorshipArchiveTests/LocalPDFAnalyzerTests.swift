@@ -106,6 +106,52 @@ final class LocalPDFAnalyzerTests: XCTestCase {
         XCTAssertEqual(result.suggestions.first?.endPageNumber, 2)
     }
 
+    func testEmbeddedSongFormAboveTitleIsNotSelectedAsTitle() async throws {
+        let pdfURL = try PDFTestFixture.make(pages: [
+            "Intro-V-C-Inter-V-Cx2-Outro\n나를 향한 주의 사랑\n"
+                + "주님의 사랑을 기쁨으로 오래 노래합니다"
+        ])
+        defer { PDFTestFixture.remove(pdfURL) }
+
+        let analyzer = LocalPDFAnalyzer(textRecognizer: PageTextRecognizerSpy())
+        let result = try await analyzer.analyze(
+            pdfAt: pdfURL,
+            originalFileName: "합본 악보.pdf",
+            expectedPageCount: 1,
+            progress: { _ in }
+        )
+
+        XCTAssertEqual(result.suggestions.first?.title, "나를 향한 주의 사랑")
+    }
+
+    func testFocusedOCRRemovesSongFormMergedBeforeKoreanTitle() async throws {
+        let pdfURL = try PDFTestFixture.make(pages: [nil])
+        defer { PDFTestFixture.remove(pdfURL) }
+
+        let recognizedText = RecognizedPageText(
+            text: "Intro-V-C-Inter-C 나를 향한 주의 사랑",
+            confidence: 0.91,
+            lines: [
+                RecognizedTextLine(
+                    text: "Intro-V-C-Inter-C 나를 향한 주의 사랑",
+                    confidence: 0.91,
+                    boundingBox: CGRect(x: 0.12, y: 0.62, width: 0.76, height: 0.18)
+                )
+            ]
+        )
+        let analyzer = LocalPDFAnalyzer(
+            textRecognizer: PageTextRecognizerSpy(result: recognizedText)
+        )
+        let result = try await analyzer.analyze(
+            pdfAt: pdfURL,
+            originalFileName: "합본 악보.pdf",
+            expectedPageCount: 1,
+            progress: { _ in }
+        )
+
+        XCTAssertEqual(result.suggestions.first?.title, "나를 향한 주의 사랑")
+    }
+
     private func makeRasterizedScorePDF() throws -> URL {
         let size = CGSize(width: 830, height: 1_170)
         let image = UIGraphicsImageRenderer(size: size).image { context in
