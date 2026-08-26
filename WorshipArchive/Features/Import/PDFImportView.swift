@@ -13,11 +13,15 @@ struct PDFImportView: View {
     @State private var isReanalysisConfirmationPresented = false
     @State private var isReplacementConfirmationPresented = false
 
+    private let initialPDFURL: URL?
+
     init(
         fileStore: any PDFFileStoring,
         pdfAnalyzer: any PDFAnalyzing = LocalPDFAnalyzer(),
-        uploadScheduler: (any PDFAssetUploadScheduling)? = nil
+        uploadScheduler: (any PDFAssetUploadScheduling)? = nil,
+        initialPDFURL: URL? = nil
     ) {
+        self.initialPDFURL = initialPDFURL
         _coordinator = State(
             initialValue: PDFImportCoordinator(
                 fileStore: fileStore,
@@ -147,6 +151,13 @@ struct PDFImportView: View {
             }
         } message: {
             Text(coordinator.errorMessage ?? "알 수 없는 오류가 발생했습니다.")
+        }
+        .task(id: initialPDFURL) {
+            guard let initialPDFURL, coordinator.phase == .selecting else { return }
+            await coordinator.stagePDF(
+                from: initialPDFURL,
+                in: modelContext.container
+            )
         }
         .onDisappear {
             Task {

@@ -1,5 +1,13 @@
 import SwiftUI
 import SwiftData
+import UniformTypeIdentifiers
+
+private struct PDFImportRequest: Identifiable {
+    let id = UUID()
+    let sourceURL: URL?
+
+    static let manual = PDFImportRequest(sourceURL: nil)
+}
 
 private actor ArchiveFileMaintenanceGate {
     static let shared = ArchiveFileMaintenanceGate()
@@ -17,7 +25,8 @@ struct ContentView: View {
     @Query(sort: \ArchiveDocument.importedAt) private var documents: [ArchiveDocument]
 
     @State private var selection: AppDestination = .home
-    @State private var isPDFImportPresented = false
+    @State private var pdfImportRequest: PDFImportRequest?
+    @State private var incomingDocumentErrorMessage: String?
     @State private var didPerformFileMaintenance = false
 
     private let fileStore: any PDFFileStoring
@@ -46,7 +55,7 @@ struct ContentView: View {
                         selection = destination
                     },
                     addPDF: {
-                        isPDFImportPresented = true
+                        presentPDFPicker()
                     }
                 )
             }
@@ -57,7 +66,7 @@ struct ContentView: View {
 
             NavigationStack {
                 SearchView(fileAccess: fileStore) {
-                    isPDFImportPresented = true
+                    presentPDFPicker()
                 }
             }
             .tabItem {
@@ -67,7 +76,7 @@ struct ContentView: View {
 
             NavigationStack {
                 LibraryView(fileAccess: fileStore) {
-                    isPDFImportPresented = true
+                    presentPDFPicker()
                 }
             }
             .tabItem {
@@ -84,12 +93,31 @@ struct ContentView: View {
             .tag(AppDestination.settings)
         }
         .tabViewStyle(.sidebarAdaptable)
-        .sheet(isPresented: $isPDFImportPresented) {
+        .sheet(item: $pdfImportRequest) { request in
             PDFImportView(
                 fileStore: fileStore,
                 pdfAnalyzer: pdfAnalyzer,
-                uploadScheduler: syncCoordinator
+                uploadScheduler: syncCoordinator,
+                initialPDFURL: request.sourceURL
             )
+        }
+        .onOpenURL(perform: handleIncomingDocument)
+        .alert(
+            "PDF를 열 수 없어요",
+            isPresented: Binding(
+                get: { incomingDocumentErrorMessage != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        incomingDocumentErrorMessage = nil
+                    }
+                }
+            )
+        ) {
+            Button("확인", role: .cancel) {
+                incomingDocumentErrorMessage = nil
+            }
+        } message: {
+            Text(incomingDocumentErrorMessage ?? "PDF 파일인지 확인해 주세요.")
         }
         .task {
             await performFileMaintenanceIfNeeded()
@@ -97,6 +125,28 @@ struct ContentView: View {
         .task(id: syncAssets) {
             await syncCoordinator?.reconcile(syncAssets)
         }
+    }
+
+    private func presentPDFPicker() {
+        pdfImportRequest = .manual
+    }
+
+    private func handleIncomingDocument(_ url: URL) {
+        let resourceType = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType
+        let isPDF = resourceType?.conforms(to: .pdf) == true
+            || url.pathExtension.lowercased() == "pdf"
+
+        guard url.isFileURL, isPDF else {
+            incomingDocumentErrorMessage = "찬양서랍에는 PDF 파일만 추가할 수 있어요."
+            return
+        }
+
+        guard pdfImportRequest == nil else {
+            incomingDocumentErrorMessage = "현재 PDF 확인을 마친 뒤 다시 공유해 주세요."
+            return
+        }
+
+        pdfImportRequest = PDFImportRequest(sourceURL: url)
     }
 
     private var syncAssets: [LocalPDFAsset] {
