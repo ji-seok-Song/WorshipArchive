@@ -35,21 +35,21 @@ struct HomeView: View {
 
                     LazyVGrid(columns: columns, spacing: 12) {
                         QuickLinkCard(
-                            title: "악보 검색",
-                            subtitle: "곡 제목이나 원본 PDF 이름으로 찾아보세요.",
-                            systemImage: "text.magnifyingglass",
-                            tint: ArchiveTheme.tint
-                        ) {
-                            navigate(.search)
-                        }
-
-                        QuickLinkCard(
                             title: "전체 라이브러리",
                             subtitle: "곡과 원본 PDF를 한곳에서 관리하세요.",
                             systemImage: "books.vertical",
                             tint: ArchiveTheme.accent
                         ) {
                             navigate(.library)
+                        }
+                        
+                        QuickLinkCard(
+                            title: "악보 검색",
+                            subtitle: "곡 제목이나 원본 PDF 이름으로 찾아보세요.",
+                            systemImage: "text.magnifyingglass",
+                            tint: ArchiveTheme.tint
+                        ) {
+                            navigate(.search)
                         }
                     }
                 }
