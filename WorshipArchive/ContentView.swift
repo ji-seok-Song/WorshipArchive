@@ -65,16 +65,6 @@ struct ContentView: View {
             .tag(AppDestination.home)
 
             NavigationStack {
-                SearchView(fileAccess: fileStore) {
-                    presentPDFPicker()
-                }
-            }
-            .tabItem {
-                Label(AppDestination.search.title, systemImage: AppDestination.search.systemImage)
-            }
-            .tag(AppDestination.search)
-
-            NavigationStack {
                 LibraryView(fileAccess: fileStore) {
                     presentPDFPicker()
                 }
@@ -83,6 +73,16 @@ struct ContentView: View {
                 Label(AppDestination.library.title, systemImage: AppDestination.library.systemImage)
             }
             .tag(AppDestination.library)
+            
+            NavigationStack {
+                SearchView(fileAccess: fileStore) {
+                    presentPDFPicker()
+                }
+            }
+            .tabItem {
+                Label(AppDestination.search.title, systemImage: AppDestination.search.systemImage)
+            }
+            .tag(AppDestination.search)
 
             NavigationStack {
                 SettingsView(syncCoordinator: syncCoordinator)
