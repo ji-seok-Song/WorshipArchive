@@ -6,6 +6,7 @@ import UIKit
 
 struct PDFViewerView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.scenePhase) private var scenePhase
 
@@ -25,6 +26,10 @@ struct PDFViewerView: View {
     @State private var exportedSongPDF: ExportedSongPDF?
     @State private var isExportingSongPDF = false
     @State private var exportErrorMessage: String?
+    @State private var showsKeyEditor = false
+    @State private var showsSongManager = false
+    @State private var showsSongDeleteConfirmation = false
+    @State private var songManagementErrorMessage: String?
 
     init(
         document: ArchiveDocument,
@@ -81,17 +86,34 @@ struct PDFViewerView: View {
                         .disabled(!canExportSongPDF)
                     }
 
-                    if let song = sheet?.song {
-                        NavigationLink {
-                            SongDetailView(
-                                song: song,
-                                fileAccess: fileAccess
-                            )
-                        } label: {
-                            Label("곡 관리", systemImage: "ellipsis.circle")
+                    Menu {
+                        Button("키 수정", systemImage: "music.note") {
+                            showsKeyEditor = true
                         }
+
+                        if sheet?.song != nil {
+                            Button("곡 전체 관리", systemImage: "slider.horizontal.3") {
+                                showsSongManager = true
+                            }
+
+                            Divider()
+
+                            Button("곡 삭제", systemImage: "trash", role: .destructive) {
+                                showsSongDeleteConfirmation = true
+                            }
+                        }
+                    } label: {
+                        Label("곡 관리", systemImage: "ellipsis.circle")
                     }
                 }
+            }
+        }
+        .navigationDestination(isPresented: $showsSongManager) {
+            if let song = sheet?.song {
+                SongDetailView(
+                    song: song,
+                    fileAccess: fileAccess
+                )
             }
         }
         .toolbar(isPerformanceMode ? .hidden : .visible, for: .navigationBar)
@@ -164,6 +186,40 @@ struct PDFViewerView: View {
         } message: {
             Text(exportErrorMessage ?? "잠시 후 다시 시도해 주세요.")
         }
+        .alert(
+            "곡을 삭제하지 못했어요",
+            isPresented: Binding(
+                get: { songManagementErrorMessage != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        songManagementErrorMessage = nil
+                    }
+                }
+            )
+        ) {
+            Button("확인", role: .cancel) {
+                songManagementErrorMessage = nil
+            }
+        } message: {
+            Text(songManagementErrorMessage ?? "잠시 후 다시 시도해 주세요.")
+        }
+        .confirmationDialog(
+            "‘\(sheet?.song?.title ?? "이 곡")’을 삭제할까요?",
+            isPresented: $showsSongDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("곡 삭제", role: .destructive, action: deleteSong)
+            Button("취소", role: .cancel) {}
+        } message: {
+            Text("곡별 악보 연결은 삭제되지만 처음 등록한 원본 PDF는 유지됩니다.")
+        }
+        .sheet(isPresented: $showsKeyEditor) {
+            if let sheet {
+                NavigationStack {
+                    SongKeyEditForm(sheet: sheet)
+                }
+            }
+        }
         .sheet(item: $exportedSongPDF) { exportedPDF in
             PDFShareSheet(fileURL: exportedPDF.fileURL) {
                 exportedSongPDF = nil
@@ -196,6 +252,20 @@ struct PDFViewerView: View {
             return true
         }
         return false
+    }
+
+    private func deleteSong() {
+        guard let song = sheet?.song else {
+            songManagementErrorMessage = "삭제할 곡 정보를 찾을 수 없어요."
+            return
+        }
+
+        do {
+            try ArchiveLibraryEditing.deleteSong(song, in: modelContext)
+            dismiss()
+        } catch {
+            songManagementErrorMessage = error.localizedDescription
+        }
     }
 
     private func exportSongPDF() async {

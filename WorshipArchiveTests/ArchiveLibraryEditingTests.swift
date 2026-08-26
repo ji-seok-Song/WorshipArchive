@@ -54,6 +54,59 @@ final class ArchiveLibraryEditingTests: XCTestCase {
     }
 
     @MainActor
+    func testUpdatingKeyKeepsTheExistingPageRange() throws {
+        let container = try AppModelContainer.make(inMemory: true)
+        let context = ModelContext(container)
+        let document = makeDocument(name: "키 수정.pdf", pages: 3)
+        let song = Song(title: "키 수정 곡")
+        let sheet = try SongSheet.create(
+            startPageIndex: 1,
+            endPageIndex: 2,
+            musicalKey: .cMajor,
+            document: document,
+            song: song
+        )
+        context.insert(document)
+        context.insert(song)
+        context.insert(sheet)
+        try context.save()
+
+        try ArchiveLibraryEditing.updateSheetKey(
+            sheet,
+            musicalKey: .aMajor,
+            in: context
+        )
+
+        XCTAssertEqual(sheet.musicalKey, .aMajor)
+        XCTAssertEqual(sheet.startPageIndex, 1)
+        XCTAssertEqual(sheet.endPageIndex, 2)
+    }
+
+    @MainActor
+    func testDeletingSongKeepsTheOriginalDocument() throws {
+        let container = try AppModelContainer.make(inMemory: true)
+        let context = ModelContext(container)
+        let document = makeDocument(name: "원본 유지.pdf", pages: 1)
+        let song = Song(title: "삭제할 곡")
+        let sheet = try SongSheet.create(
+            startPageIndex: 0,
+            endPageIndex: 0,
+            document: document,
+            song: song
+        )
+        context.insert(document)
+        context.insert(song)
+        context.insert(sheet)
+        try context.save()
+
+        try ArchiveLibraryEditing.deleteSong(song, in: context)
+
+        XCTAssertEqual(try context.fetch(FetchDescriptor<Song>()).count, 0)
+        XCTAssertEqual(try context.fetch(FetchDescriptor<SongSheet>()).count, 0)
+        XCTAssertEqual(try context.fetch(FetchDescriptor<ArchiveDocument>()).count, 1)
+    }
+
+    @MainActor
     func testDeletingDocumentKeepsSongWithAnotherSheetAndRemovesOrphanSong() throws {
         let container = try AppModelContainer.make(inMemory: true)
         let context = ModelContext(container)

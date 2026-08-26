@@ -33,6 +33,22 @@ enum ArchiveLibraryEditing {
         try context.save()
     }
 
+    static func updateSheetKey(
+        _ sheet: SongSheet,
+        musicalKey: MusicalKey?,
+        in context: ModelContext
+    ) throws {
+        let previousKey = sheet.musicalKey
+        sheet.musicalKey = musicalKey
+
+        do {
+            try context.save()
+        } catch {
+            sheet.musicalKey = previousKey
+            throw error
+        }
+    }
+
     static func deleteSheet(_ sheet: SongSheet, in context: ModelContext) throws {
         context.delete(sheet)
         try context.save()
@@ -40,7 +56,12 @@ enum ArchiveLibraryEditing {
 
     static func deleteSong(_ song: Song, in context: ModelContext) throws {
         context.delete(song)
-        try context.save()
+        do {
+            try context.save()
+        } catch {
+            context.rollback()
+            throw error
+        }
     }
 
     static func mergeSong(
