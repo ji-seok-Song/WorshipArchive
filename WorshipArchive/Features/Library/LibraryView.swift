@@ -6,6 +6,7 @@ struct LibraryView: View {
     @Query(sort: \Song.title) private var songs: [Song]
     @Query(sort: \ArchiveDocument.importedAt, order: .reverse) private var documents: [ArchiveDocument]
     @State private var mode: LibraryMode = .songs
+    @State private var selectedKey: MusicalKey?
     @State private var showsFavoritesOnly = false
     @State private var favoriteSaveErrorMessage: String?
     @State private var documentPendingDeletion: ArchiveDocument?
@@ -34,7 +35,9 @@ struct LibraryView: View {
             .padding(.horizontal)
 
             if mode == .songs, !songs.isEmpty {
-                HStack {
+                HStack(spacing: 12) {
+                    keyMenu
+
                     Toggle(isOn: $showsFavoritesOnly) {
                         Label("즐겨찾기만", systemImage: "heart.fill")
                     }
@@ -46,6 +49,13 @@ struct LibraryView: View {
                     Text("\(displayedSongs.count)곡")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
+
+                    if hasActiveSongFilter {
+                        Button("초기화", systemImage: "arrow.counterclockwise") {
+                            resetSongFilters()
+                        }
+                        .font(.subheadline)
+                    }
                 }
                 .frame(maxWidth: 760)
                 .padding(.horizontal)
@@ -111,11 +121,7 @@ struct LibraryView: View {
             if songs.isEmpty {
                 emptyState
             } else if displayedSongs.isEmpty {
-                ArchiveEmptyState(
-                    systemImage: "heart",
-                    title: "즐겨찾기한 곡이 없어요",
-                    message: "자주 보는 곡의 하트를 눌러 이곳에 모아 보세요."
-                )
+                filteredSongsEmptyState
             } else {
                 LazyVStack(spacing: 12) {
                     ForEach(displayedSongs, id: \.id) { song in
@@ -169,8 +175,66 @@ struct LibraryView: View {
     private var displayedSongs: [Song] {
         SongSearchMatcher.filter(
             songs,
-            using: SongSearchFilter(favoritesOnly: showsFavoritesOnly)
+            using: SongSearchFilter(
+                musicalKey: selectedKey,
+                favoritesOnly: showsFavoritesOnly
+            )
         )
+    }
+
+    private var hasActiveSongFilter: Bool {
+        selectedKey != nil || showsFavoritesOnly
+    }
+
+    private var keyMenu: some View {
+        Menu {
+            Picker("키", selection: $selectedKey) {
+                Text("모든 키")
+                    .tag(nil as MusicalKey?)
+
+                ForEach(MusicalKey.allCases) { key in
+                    Text(key.displayName)
+                        .tag(key as MusicalKey?)
+                }
+            }
+        } label: {
+            Label(
+                selectedKey?.displayName ?? "모든 키",
+                systemImage: "music.quarternote.3"
+            )
+        }
+        .buttonStyle(.bordered)
+        .accessibilityLabel("키 필터")
+        .accessibilityValue(selectedKey?.displayName ?? "모든 키")
+    }
+
+    private var filteredSongsEmptyState: some View {
+        ArchiveEmptyState(
+            systemImage: showsFavoritesOnly ? "heart" : "music.note",
+            title: "조건에 맞는 곡이 없어요",
+            message: filteredSongsEmptyMessage,
+            actionTitle: "필터 초기화",
+            actionSystemImage: "arrow.counterclockwise",
+            action: resetSongFilters
+        )
+    }
+
+    private var filteredSongsEmptyMessage: String {
+        switch (selectedKey, showsFavoritesOnly) {
+        case (let key?, true):
+            return "즐겨찾기 중 \(key.displayName) 키로 등록된 곡이 없어요."
+        case (let key?, false):
+            return "\(key.displayName) 키로 등록된 곡이 없어요."
+        case (nil, true):
+            return "자주 보는 곡의 하트를 눌러 이곳에 모아 보세요."
+        case (nil, false):
+            return "다른 키를 선택해 보세요."
+        }
+    }
+
+    private func resetSongFilters() {
+        selectedKey = nil
+        showsFavoritesOnly = false
     }
 
     private var favoriteErrorIsPresented: Binding<Bool> {

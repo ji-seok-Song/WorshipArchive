@@ -38,7 +38,6 @@ final class SongSearchContentRevisionTests: XCTestCase {
     ) -> SongSearchRefreshRequest {
         SongSearchRefreshRequest(
             query: query,
-            selectedKey: .gMajor,
             contentRevisions: SongSearchContentRevision.capture(songs),
             refreshID: UUID(uuidString: "00000000-0000-0000-0000-000000000099")!
         )

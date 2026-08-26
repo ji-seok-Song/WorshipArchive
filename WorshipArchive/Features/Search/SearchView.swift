@@ -6,7 +6,6 @@ struct SearchView: View {
     @Query(sort: \Song.title) private var songs: [Song]
 
     @State private var query = ""
-    @State private var selectedKey: MusicalKey?
     @State private var favoriteSaveErrorMessage: String?
     @State private var committedQuery = ""
     @State private var matchingSongIDs: [UUID] = []
@@ -34,7 +33,7 @@ struct SearchView: View {
                     ArchiveEmptyState(
                         systemImage: "doc.badge.plus",
                         title: "먼저 악보를 추가해 주세요",
-                        message: "PDF를 등록하면 곡 제목과 원본 PDF 이름으로 찾고, 키별로 모아볼 수 있어요.",
+                        message: "PDF를 등록하면 곡 제목과 원본 PDF 이름으로 찾을 수 있어요.",
                         actionTitle: "첫 PDF 추가",
                         actionSystemImage: "plus",
                         action: addPDF
@@ -98,8 +97,7 @@ struct SearchView: View {
 
     private var filter: SongSearchFilter {
         SongSearchFilter(
-            query: committedQuery,
-            musicalKey: selectedKey
+            query: committedQuery
         )
     }
 
@@ -111,7 +109,6 @@ struct SearchView: View {
     private var shouldShowResults: Bool {
         !SearchTextNormalizer.normalize(query).isEmpty
             || !filter.query.isEmpty
-            || selectedKey != nil
     }
 
     private var isQueryPending: Bool {
@@ -122,7 +119,6 @@ struct SearchView: View {
     private var searchRequest: SongSearchRefreshRequest {
         SongSearchRefreshRequest(
             query: query,
-            selectedKey: selectedKey,
             contentRevisions: SongSearchContentRevision.capture(songs),
             refreshID: searchRefreshID
         )
@@ -144,10 +140,6 @@ struct SearchView: View {
         showsResults: Bool
     ) -> some View {
         HStack(spacing: 12) {
-            keyMenu
-
-            Spacer()
-
             Text(
                 isQueryPending
                     ? "검색 중…"
@@ -155,6 +147,8 @@ struct SearchView: View {
             )
             .font(.subheadline)
             .foregroundStyle(.secondary)
+
+            Spacer()
 
             if showsResults {
                 Button("초기화", systemImage: "arrow.counterclockwise") {
@@ -167,51 +161,23 @@ struct SearchView: View {
         .background(ArchiveTheme.surface, in: .rect(cornerRadius: 16))
     }
 
-    private var keyMenu: some View {
-        Menu {
-            Picker("키", selection: $selectedKey) {
-                Text("모든 키")
-                    .tag(nil as MusicalKey?)
-
-                ForEach(MusicalKey.allCases) { key in
-                    Text(key.displayName)
-                        .tag(key as MusicalKey?)
-                }
-            }
-        } label: {
-            Label(
-                selectedKey?.displayName ?? "모든 키",
-                systemImage: "music.quarternote.3"
-            )
-        }
-        .buttonStyle(.bordered)
-        .accessibilityLabel("키 필터")
-        .accessibilityValue(selectedKey?.displayName ?? "모든 키")
-    }
-
     private func searchEmptyState(hasQuery: Bool) -> some View {
         ArchiveEmptyState(
             systemImage: hasQuery ? "music.note" : "text.magnifyingglass",
             title: hasQuery ? "검색 결과가 없어요" : "기억나는 단서를 입력해 보세요",
             message: hasQuery
                 ? emptyResultMessage
-                : "곡 제목이나 원본 PDF 이름을 검색하거나 키를 선택해 보세요."
+                : "곡 제목이나 원본 PDF 이름을 검색해 보세요."
         )
     }
 
     private var emptyResultMessage: String {
         let trimmedQuery = committedQuery.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        switch (trimmedQuery.isEmpty, selectedKey) {
-        case (false, let key?):
-            return "‘\(trimmedQuery)’ 및 \(key.displayName) 키와 일치하는 악보가 없어요."
-        case (false, nil):
+        if !trimmedQuery.isEmpty {
             return "‘\(trimmedQuery)’와 일치하는 곡 또는 PDF가 없어요."
-        case (true, let key?):
-            return "\(key.displayName) 키로 등록된 악보가 없어요."
-        case (true, nil):
-            return "검색 조건과 일치하는 악보가 없어요."
         }
+        return "검색 조건과 일치하는 악보가 없어요."
     }
 
     private func searchResultSummary(for song: Song) -> String {
@@ -256,7 +222,6 @@ struct SearchView: View {
     private func resetSearch() {
         query = ""
         committedQuery = ""
-        selectedKey = nil
         matchingSongIDs = []
         searchRefreshID = UUID()
     }
@@ -276,8 +241,7 @@ struct SearchView: View {
         guard !Task.isCancelled else { return }
 
         let requestFilter = SongSearchFilter(
-            query: request.query,
-            musicalKey: request.selectedKey
+            query: request.query
         )
         let matches = SongSearchMatcher.filter(
             songs,

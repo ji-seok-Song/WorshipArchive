@@ -40,7 +40,6 @@ nonisolated struct SongSearchContentRevision: Equatable, Sendable {
 
 nonisolated struct SongSearchRefreshRequest: Equatable, Sendable {
     let query: String
-    let selectedKey: MusicalKey?
     let contentRevisions: [SongSearchContentRevision]
     let refreshID: UUID
 }
