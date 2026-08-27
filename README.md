@@ -11,3 +11,5 @@
 - 각 기능은 단독으로 빌드 가능한 작은 Git 커밋으로 남깁니다.
 
 상세 구현 순서와 완료 조건은 [Docs/IMPLEMENTATION_PLAN.md](Docs/IMPLEMENTATION_PLAN.md)를 참고하세요.
+
+App Store 출시 준비는 [Docs/APP_STORE_RELEASE_CHECKLIST.md](Docs/APP_STORE_RELEASE_CHECKLIST.md), 개인정보처리방침과 지원 페이지 초안은 [Docs/PRIVACY_POLICY.md](Docs/PRIVACY_POLICY.md), [Docs/SUPPORT.md](Docs/SUPPORT.md)에 정리되어 있습니다.
