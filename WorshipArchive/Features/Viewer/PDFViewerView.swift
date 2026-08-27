@@ -14,22 +14,7 @@ struct PDFViewerView: View {
     let sheet: SongSheet?
     private let fileAccess: any StoredPDFAccessing
 
-    @State private var loader: PDFViewerLoader
-    @State private var loadRequestID = UUID()
-    @State private var currentPageIndex: Int?
-    @State private var persistenceErrorMessage: String?
-    @State private var isPerformanceMode = false
-    @State private var prefersTwoPageLayout = true
-    @State private var idleTimerLease: UUID?
-    @State private var pdfExporter: SongPDFExporter
-    @State private var exportRequestID: UUID?
-    @State private var exportedSongPDF: ExportedSongPDF?
-    @State private var isExportingSongPDF = false
-    @State private var exportErrorMessage: String?
-    @State private var showsKeyEditor = false
-    @State private var showsSongManager = false
-    @State private var showsSongDeleteConfirmation = false
-    @State private var songManagementErrorMessage: String?
+    @State private var viewModel: PDFViewerViewModel
 
     init(
         document: ArchiveDocument,
@@ -39,76 +24,19 @@ struct PDFViewerView: View {
         self.document = document
         self.sheet = sheet
         self.fileAccess = fileAccess
-        _loader = State(
-            initialValue: PDFViewerLoader(fileAccess: fileAccess)
-        )
-        _pdfExporter = State(
-            initialValue: SongPDFExporter(fileAccess: fileAccess)
+        _viewModel = State(
+            initialValue: PDFViewerViewModel(fileAccess: fileAccess)
         )
     }
 
     var body: some View {
-        Group {
-            switch loader.phase {
-            case .idle, .loading:
-                ProgressView("악보를 여는 중…")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+        @Bindable var viewModel = viewModel
 
-            case .loaded(let loadedDocument):
-                scoreViewer(for: loadedDocument)
-
-            case .failed(let message):
-                ContentUnavailableView {
-                    Label("악보를 열 수 없어요", systemImage: "doc.badge.ellipsis")
-                } description: {
-                    Text(message)
-                } actions: {
-                    Button("다시 시도") {
-                        loadRequestID = UUID()
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
-            }
-        }
-        .navigationTitle(viewerTitle)
+        viewerContent
+        .navigationTitle(viewModel.viewerTitle(document: document, sheet: sheet))
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            if sheet != nil {
-                ToolbarItemGroup(placement: .primaryAction) {
-                    if isExportingSongPDF {
-                        ProgressView()
-                            .controlSize(.small)
-                            .accessibilityLabel("곡 PDF 만드는 중")
-                    } else {
-                        Button("곡 PDF 공유", systemImage: "square.and.arrow.up") {
-                            exportRequestID = UUID()
-                        }
-                        .disabled(!canExportSongPDF)
-                    }
-
-                    Menu {
-                        Button("키 수정", systemImage: "music.note") {
-                            showsKeyEditor = true
-                        }
-
-                        if sheet?.song != nil {
-                            Button("곡 전체 관리", systemImage: "slider.horizontal.3") {
-                                showsSongManager = true
-                            }
-
-                            Divider()
-
-                            Button("곡 삭제", systemImage: "trash", role: .destructive) {
-                                showsSongDeleteConfirmation = true
-                            }
-                        }
-                    } label: {
-                        Label("곡 관리", systemImage: "ellipsis.circle")
-                    }
-                }
-            }
-        }
-        .navigationDestination(isPresented: $showsSongManager) {
+        .toolbar { viewerToolbar }
+        .navigationDestination(isPresented: $viewModel.showsSongManager) {
             if let song = sheet?.song {
                 SongDetailView(
                     song: song,
@@ -116,204 +44,187 @@ struct PDFViewerView: View {
                 )
             }
         }
-        .toolbar(isPerformanceMode ? .hidden : .visible, for: .navigationBar)
-        .persistentSystemOverlays(isPerformanceMode ? .hidden : .automatic)
-        .task(id: loadRequestID) {
-            await loadDocument()
+        .toolbar(viewModel.isPerformanceMode ? .hidden : .visible, for: .navigationBar)
+        .persistentSystemOverlays(viewModel.isPerformanceMode ? .hidden : .automatic)
+        .task(id: viewModel.loadRequestID) {
+            await viewModel.loadDocument(
+                document: document,
+                sheet: sheet,
+                modelContext: modelContext
+            )
         }
-        .task(id: exportRequestID) {
-            guard exportRequestID != nil else { return }
-            await exportSongPDF()
+        .task(id: viewModel.exportRequestID) {
+            guard viewModel.exportRequestID != nil else { return }
+            await viewModel.exportSongPDF(document: document, sheet: sheet)
         }
         .onAppear {
-            updateIdleTimerLease(
-                performanceModeIsEnabled: isPerformanceMode,
-                scenePhase: scenePhase
-            )
+            viewModel.updateIdleTimerLease(isSceneActive: scenePhase == .active)
         }
-        .onChange(of: isPerformanceMode) { _, isEnabled in
-            updateIdleTimerLease(
-                performanceModeIsEnabled: isEnabled,
-                scenePhase: scenePhase
-            )
+        .onChange(of: viewModel.isPerformanceMode) { _, _ in
+            viewModel.updateIdleTimerLease(isSceneActive: scenePhase == .active)
         }
         .onChange(of: scenePhase) { _, newScenePhase in
-            updateIdleTimerLease(
-                performanceModeIsEnabled: isPerformanceMode,
-                scenePhase: newScenePhase
-            )
+            viewModel.updateIdleTimerLease(isSceneActive: newScenePhase == .active)
         }
         .onDisappear {
-            loader.cancel()
-            releaseIdleTimerLease()
-            if let exportedSongPDF {
+            viewModel.cancelViewing()
+            if let exportedSongPDF = viewModel.exportedSongPDF {
                 Task {
-                    await pdfExporter.remove(exportedSongPDF)
+                    await viewModel.removeExportedPDF(exportedSongPDF)
                 }
             }
         }
         .alert(
             "열람 기록을 저장하지 못했어요",
             isPresented: Binding(
-                get: { persistenceErrorMessage != nil },
+                get: { viewModel.persistenceErrorMessage != nil },
                 set: { isPresented in
                     if !isPresented {
-                        persistenceErrorMessage = nil
+                        viewModel.persistenceErrorMessage = nil
                     }
                 }
             )
         ) {
             Button("확인", role: .cancel) {
-                persistenceErrorMessage = nil
+                viewModel.persistenceErrorMessage = nil
             }
         } message: {
-            Text(persistenceErrorMessage ?? "알 수 없는 오류가 발생했습니다.")
+            Text(viewModel.persistenceErrorMessage ?? "알 수 없는 오류가 발생했습니다.")
         }
         .alert(
             "곡 PDF를 만들지 못했어요",
             isPresented: Binding(
-                get: { exportErrorMessage != nil },
+                get: { viewModel.exportErrorMessage != nil },
                 set: { isPresented in
                     if !isPresented {
-                        exportErrorMessage = nil
+                        viewModel.exportErrorMessage = nil
                     }
                 }
             )
         ) {
             Button("확인", role: .cancel) {
-                exportErrorMessage = nil
+                viewModel.exportErrorMessage = nil
             }
         } message: {
-            Text(exportErrorMessage ?? "잠시 후 다시 시도해 주세요.")
+            Text(viewModel.exportErrorMessage ?? "잠시 후 다시 시도해 주세요.")
         }
         .alert(
             "곡을 삭제하지 못했어요",
             isPresented: Binding(
-                get: { songManagementErrorMessage != nil },
+                get: { viewModel.songManagementErrorMessage != nil },
                 set: { isPresented in
                     if !isPresented {
-                        songManagementErrorMessage = nil
+                        viewModel.songManagementErrorMessage = nil
                     }
                 }
             )
         ) {
             Button("확인", role: .cancel) {
-                songManagementErrorMessage = nil
+                viewModel.songManagementErrorMessage = nil
             }
         } message: {
-            Text(songManagementErrorMessage ?? "잠시 후 다시 시도해 주세요.")
+            Text(viewModel.songManagementErrorMessage ?? "잠시 후 다시 시도해 주세요.")
         }
         .confirmationDialog(
-            "‘\(sheet?.song?.title ?? "이 곡")’을 삭제할까요?",
-            isPresented: $showsSongDeleteConfirmation,
+            songDeletionTitle,
+            isPresented: $viewModel.showsSongDeleteConfirmation,
             titleVisibility: .visible
         ) {
-            Button("곡 삭제", role: .destructive, action: deleteSong)
+            Button("곡 삭제", role: .destructive) {
+                if viewModel.deleteSong(sheet?.song, in: modelContext) {
+                    dismiss()
+                }
+            }
             Button("취소", role: .cancel) {}
         } message: {
             Text("곡별 악보 연결은 삭제되지만 처음 등록한 원본 PDF는 유지됩니다.")
         }
-        .sheet(isPresented: $showsKeyEditor) {
+        .sheet(isPresented: $viewModel.showsKeyEditor) {
             if let sheet {
                 NavigationStack {
                     SongKeyEditForm(sheet: sheet)
                 }
             }
         }
-        .sheet(item: $exportedSongPDF) { exportedPDF in
+        .sheet(item: $viewModel.exportedSongPDF) { exportedPDF in
             PDFShareSheet(fileURL: exportedPDF.fileURL) {
-                exportedSongPDF = nil
                 Task {
-                    await pdfExporter.remove(exportedPDF)
+                    await viewModel.removeExportedPDF(exportedPDF)
                 }
             }
             .onDisappear {
                 Task {
-                    await pdfExporter.remove(exportedPDF)
+                    await viewModel.removeExportedPDF(exportedPDF)
                 }
             }
         }
     }
 
-    private var viewerTitle: String {
-        if let title = sheet?.song?.title, !title.isEmpty {
-            return title
-        }
+    @ViewBuilder
+    private var viewerContent: some View {
+        switch viewModel.loader.phase {
+        case .idle, .loading:
+            ProgressView("악보를 여는 중…")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-        let fileName = URL(filePath: document.originalFileName)
-            .deletingPathExtension()
-            .lastPathComponent
-        return fileName.isEmpty ? "악보" : fileName
-    }
+        case .loaded(let loadedDocument):
+            scoreViewer(for: loadedDocument)
 
-    private var canExportSongPDF: Bool {
-        guard sheet != nil else { return false }
-        if case .loaded = loader.phase {
-            return true
-        }
-        return false
-    }
-
-    private func deleteSong() {
-        guard let song = sheet?.song else {
-            songManagementErrorMessage = "삭제할 곡 정보를 찾을 수 없어요."
-            return
-        }
-
-        do {
-            try ArchiveLibraryEditing.deleteSong(song, in: modelContext)
-            dismiss()
-        } catch {
-            songManagementErrorMessage = error.localizedDescription
-        }
-    }
-
-    private func exportSongPDF() async {
-        guard let sheet else { return }
-
-        isExportingSongPDF = true
-        exportErrorMessage = nil
-        defer {
-            isExportingSongPDF = false
-        }
-
-        do {
-            if let exportedSongPDF {
-                await pdfExporter.remove(exportedSongPDF)
-                self.exportedSongPDF = nil
+        case .failed(let message):
+            ContentUnavailableView {
+                Label("악보를 열 수 없어요", systemImage: "doc.badge.ellipsis")
+            } description: {
+                Text(message)
+            } actions: {
+                Button("다시 시도") {
+                    viewModel.retryLoading()
+                }
+                .buttonStyle(.borderedProminent)
             }
-
-            let exportedPDF = try await pdfExporter.export(
-                SongPDFExportRequest(
-                    storedFileName: document.storedFileName,
-                    checksum: document.checksum,
-                    expectedPageCount: document.pageCount,
-                    startPageIndex: sheet.startPageIndex,
-                    endPageIndex: sheet.endPageIndex,
-                    suggestedFileName: exportFileName(for: sheet)
-                )
-            )
-            if Task.isCancelled {
-                await pdfExporter.remove(exportedPDF)
-                return
-            }
-            exportedSongPDF = exportedPDF
-        } catch is CancellationError {
-            return
-        } catch {
-            exportErrorMessage = error.localizedDescription
         }
     }
 
-    private func exportFileName(for sheet: SongSheet) -> String {
-        let title = sheet.song?.title.trimmingCharacters(
-            in: .whitespacesAndNewlines
-        )
-        let baseName = (title?.isEmpty == false ? title : nil) ?? viewerTitle
-        guard let keyName = sheet.musicalKey?.displayName else {
-            return baseName
+    @ToolbarContentBuilder
+    private var viewerToolbar: some ToolbarContent {
+        if sheet != nil {
+            ToolbarItemGroup(placement: .primaryAction) {
+                if viewModel.isExportingSongPDF {
+                    ProgressView()
+                        .controlSize(.small)
+                        .accessibilityLabel("곡 PDF 만드는 중")
+                } else {
+                    Button("곡 PDF 공유", systemImage: "square.and.arrow.up") {
+                        viewModel.requestSongPDFExport()
+                    }
+                    .disabled(!viewModel.canExportSongPDF(sheet: sheet))
+                }
+
+                Menu {
+                    Button("키 수정", systemImage: "music.note") {
+                        viewModel.showsKeyEditor = true
+                    }
+
+                    if sheet?.song != nil {
+                        Button("곡 전체 관리", systemImage: "slider.horizontal.3") {
+                            viewModel.showsSongManager = true
+                        }
+
+                        Divider()
+
+                        Button("곡 삭제", systemImage: "trash", role: .destructive) {
+                            viewModel.showsSongDeleteConfirmation = true
+                        }
+                    }
+                } label: {
+                    Label("곡 관리", systemImage: "ellipsis.circle")
+                }
+            }
         }
-        return "\(baseName) (\(keyName))"
+    }
+
+    private var songDeletionTitle: String {
+        let title = sheet?.song?.title ?? "이 곡"
+        return "‘\(title)’을 삭제할까요?"
     }
 
     private func scoreViewer(
@@ -321,7 +232,7 @@ struct PDFViewerView: View {
     ) -> some View {
         let pageSession = loadedDocument.pageSession
         let sourcePageIndex = pageSession.clamped(
-            currentPageIndex ?? pageSession.initialPageIndex
+            viewModel.currentPageIndex ?? pageSession.initialPageIndex
         )
         let displayedPageIndex = loadedDocument.displayedPageIndex(
             forSourcePageIndex: sourcePageIndex
@@ -332,7 +243,7 @@ struct PDFViewerView: View {
             let allowsTwoPageLayout = horizontalSizeClass == .regular
                 && proxy.size.width > proxy.size.height
                 && pageSession.pageCount > 1
-            let usesTwoPageLayout = allowsTwoPageLayout && prefersTwoPageLayout
+            let usesTwoPageLayout = allowsTwoPageLayout && viewModel.prefersTwoPageLayout
             let pageSpan = usesTwoPageLayout ? 2 : 1
 
             Group {
@@ -348,11 +259,13 @@ struct PDFViewerView: View {
                         pageSession: displayedPageSession,
                         currentPageIndex: displayedPageIndex,
                         onPageChanged: { displayedPageIndex in
-                            selectPage(
+                            viewModel.selectPage(
                                 loadedDocument.sourcePageIndex(
                                     forDisplayedPageIndex: displayedPageIndex
                                 ),
-                                in: pageSession
+                                in: pageSession,
+                                sheet: sheet,
+                                modelContext: modelContext
                             )
                         }
                     )
@@ -366,91 +279,28 @@ struct PDFViewerView: View {
                     pageSpan: pageSpan,
                     allowsTwoPageLayout: allowsTwoPageLayout,
                     usesTwoPageLayout: usesTwoPageLayout,
-                    isPerformanceMode: isPerformanceMode,
+                    isPerformanceMode: viewModel.isPerformanceMode,
                     selectPage: { pageIndex in
-                        selectPage(pageIndex, in: pageSession)
+                        viewModel.selectPage(
+                            pageIndex,
+                            in: pageSession,
+                            sheet: sheet,
+                            modelContext: modelContext
+                        )
                     },
                     toggleTwoPageLayout: {
-                        prefersTwoPageLayout.toggle()
+                        viewModel.prefersTwoPageLayout.toggle()
                     },
                     togglePerformanceMode: {
                         withAnimation(.easeInOut(duration: 0.2)) {
-                            isPerformanceMode.toggle()
+                            viewModel.isPerformanceMode.toggle()
                         }
                     }
                 )
                 .padding(.horizontal, 12)
-                .padding(.bottom, isPerformanceMode ? 20 : 12)
+                .padding(.bottom, viewModel.isPerformanceMode ? 20 : 12)
             }
         }
-    }
-
-    private func selectPage(
-        _ pageIndex: Int,
-        in pageSession: PDFViewerPageSession
-    ) {
-        let clampedPageIndex = pageSession.clamped(pageIndex)
-        guard currentPageIndex != clampedPageIndex else { return }
-
-        currentPageIndex = clampedPageIndex
-        recordPageChange(clampedPageIndex)
-    }
-
-    private func loadDocument() async {
-        currentPageIndex = nil
-        guard let loadedDocument = await loader.load(
-            document: document,
-            sheet: sheet
-        ) else {
-            return
-        }
-
-        currentPageIndex = loadedDocument.pageSession.initialPageIndex
-
-        guard let sheet else { return }
-
-        do {
-            try PDFViewerSessionPersistence.recordOpened(
-                sheet: sheet,
-                pageIndex: loadedDocument.pageSession.initialPageIndex,
-                in: modelContext
-            )
-        } catch {
-            persistenceErrorMessage = error.localizedDescription
-        }
-    }
-
-    private func recordPageChange(_ pageIndex: Int) {
-        guard let sheet else { return }
-        guard pageIndex != sheet.lastViewedPageIndex else { return }
-
-        do {
-            try PDFViewerSessionPersistence.recordPageChange(
-                pageIndex,
-                sheet: sheet,
-                in: modelContext
-            )
-        } catch {
-            persistenceErrorMessage = error.localizedDescription
-        }
-    }
-
-    private func updateIdleTimerLease(
-        performanceModeIsEnabled: Bool,
-        scenePhase: ScenePhase
-    ) {
-        if performanceModeIsEnabled, scenePhase == .active {
-            guard idleTimerLease == nil else { return }
-            idleTimerLease = PDFViewerIdleTimerCoordinator.shared.acquire()
-        } else {
-            releaseIdleTimerLease()
-        }
-    }
-
-    private func releaseIdleTimerLease() {
-        guard let idleTimerLease else { return }
-        PDFViewerIdleTimerCoordinator.shared.release(idleTimerLease)
-        self.idleTimerLease = nil
     }
 }
 
