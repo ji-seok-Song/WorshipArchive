@@ -11,7 +11,6 @@ final class SearchViewModel {
     private(set) var committedQuery = ""
     private(set) var matchingSongIDs: [UUID] = []
 
-    @ObservationIgnored
     private var searchRefreshID = UUID()
 
     var shouldShowResults: Bool {
