@@ -23,6 +23,18 @@
 
 > 현재 상태: App Store 1.0 출시 준비 중
 
+## UI 미리보기
+
+<p align="center">
+  <img src="Docs/Images/readme-home.png" width="30%" alt="찬양서랍 홈 화면">
+  <img src="Docs/Images/readme-library.png" width="30%" alt="찬양서랍 라이브러리 화면">
+  <img src="Docs/Images/readme-search.png" width="30%" alt="찬양서랍 검색 화면">
+</p>
+
+<p align="center">
+  <sub>홈 · 라이브러리 · 검색</sub>
+</p>
+
 ## 주요 기능
 
 | 기능 | 설명 |
