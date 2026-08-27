@@ -77,6 +77,28 @@
 
 외부 패키지나 광고·분석 SDK는 사용하지 않습니다.
 
+## 아키텍처
+
+화면은 MVVM을 기준으로 구성합니다.
+
+```mermaid
+flowchart LR
+    View[SwiftUI View] -->|사용자 입력| ViewModel[@MainActor @Observable ViewModel]
+    ViewModel -->|도메인 규칙| Domain[Domain]
+    ViewModel -->|프로토콜 호출| Service[Services]
+    Service --> Infrastructure[Files · Vision · CloudKit]
+    Query[SwiftData @Query] --> View
+    View -->|현재 모델 전달| ViewModel
+```
+
+- **View**: SwiftUI 레이아웃, 화면 전환, `@Query` 결과 전달만 담당합니다.
+- **ViewModel**: 화면 상태, 사용자 작업, 비동기 흐름과 오류 복구를 담당합니다.
+- **Domain**: 검색·페이지 범위·키 판정·편집처럼 UI와 무관한 규칙을 담당합니다.
+- **Services**: PDF 저장·분석·동기화 기능의 프로토콜 경계를 정의합니다.
+- **Infrastructure**: PDFKit, Vision, CloudKit, 파일 시스템 구현을 담당합니다.
+
+PDF 가져오기의 `PDFImportCoordinator`는 파일 준비→분석→사용자 검토→저장으로 이어지는 상태가 많은 기능 전용 ViewModel입니다.
+
 ## 프로젝트 구조
 
 ```text
