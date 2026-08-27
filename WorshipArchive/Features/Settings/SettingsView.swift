@@ -1,25 +1,27 @@
 import SwiftUI
 
 struct SettingsView: View {
-    let syncCoordinator: ArchiveSyncCoordinator?
+    @State private var viewModel: SettingsViewModel
 
     init(syncCoordinator: ArchiveSyncCoordinator? = nil) {
-        self.syncCoordinator = syncCoordinator
+        _viewModel = State(
+            initialValue: SettingsViewModel(syncCoordinator: syncCoordinator)
+        )
     }
 
     var body: some View {
         Form {
             Section("동기화") {
-                if let syncCoordinator {
-                    syncStatus(syncCoordinator.status)
+                if let status = viewModel.syncStatus {
+                    syncStatus(status)
 
-                    if canRetry(syncCoordinator.status) {
+                    if viewModel.canRetry(status) {
                         Button {
-                            syncCoordinator.retry()
+                            viewModel.retrySync()
                         } label: {
                             Label("지금 다시 시도", systemImage: "arrow.clockwise")
                         }
-                        .disabled(isSyncing(syncCoordinator.status))
+                        .disabled(viewModel.isSyncing(status))
                     }
                 } else {
                     LabeledContent("저장 방식") {
@@ -40,7 +42,7 @@ struct SettingsView: View {
 
             Section("앱 정보") {
                 LabeledContent("앱 이름", value: "찬양서랍")
-                LabeledContent("버전", value: appVersion)
+                LabeledContent("버전", value: viewModel.appVersion)
             }
         }
         .navigationTitle("설정")
@@ -67,7 +69,7 @@ struct SettingsView: View {
             }
         case let .localOnly(reason, pendingCount):
             LabeledContent("iCloud") {
-                Label(localOnlyText(reason), systemImage: "icloud.slash")
+                Label(viewModel.localOnlyText(reason), systemImage: "icloud.slash")
                     .foregroundStyle(.orange)
             }
             if pendingCount > 0 {
@@ -88,36 +90,6 @@ struct SettingsView: View {
         }
     }
 
-    private func localOnlyText(_ reason: CloudAccountAvailability) -> String {
-        switch reason {
-        case .noAccount:
-            "iCloud 로그인 필요"
-        case .restricted:
-            "계정에서 사용 제한됨"
-        case .temporarilyUnavailable, .couldNotDetermine:
-            "일시적으로 사용할 수 없음"
-        case .available:
-            "사용 중"
-        }
-    }
-
-    private func canRetry(_ status: ArchiveSyncCoordinator.Status) -> Bool {
-        switch status {
-        case .localOnly, .offline, .failed:
-            true
-        case .checking, .syncing, .active:
-            false
-        }
-    }
-
-    private func isSyncing(_ status: ArchiveSyncCoordinator.Status) -> Bool {
-        if case .syncing = status { return true }
-        return false
-    }
-
-    private var appVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
-    }
 }
 
 #Preview {
