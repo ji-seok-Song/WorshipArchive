@@ -8,27 +8,25 @@ struct SongDetailView: View {
     let song: Song
     let fileAccess: any StoredPDFAccessing
 
-    @State private var favoriteSaveErrorMessage: String?
-    @State private var showsSongEditor = false
-    @State private var showsSongMergeForm = false
-    @State private var sheetBeingEdited: SongSheet?
-    @State private var sheetPendingDeletion: SongSheet?
-    @State private var showsSongDeleteConfirmation = false
-    @State private var archiveEditErrorMessage: String?
+    @State private var viewModel = SongDetailViewModel()
 
     var body: some View {
+        @Bindable var viewModel = viewModel
+
         SongDetailContent(
             song: song,
-            sheets: sortedSheets,
+            sheets: viewModel.sortedSheets(for: song),
             fileAccess: fileAccess,
-            editSheet: { sheetBeingEdited = $0 },
-            deleteSheet: { sheetPendingDeletion = $0 }
+            editSheet: { viewModel.sheetBeingEdited = $0 },
+            deleteSheet: { viewModel.sheetPendingDeletion = $0 }
         )
         .navigationTitle(song.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
-                Button(action: toggleFavorite) {
+                Button {
+                    viewModel.toggleFavorite(for: song, in: modelContext)
+                } label: {
                     Label(
                         song.isFavorite ? "즐겨찾기 해제" : "즐겨찾기 추가",
                         systemImage: song.isFavorite ? "heart.fill" : "heart"
@@ -38,13 +36,13 @@ struct SongDetailView: View {
 
                 Menu {
                     Button("곡 정보 수정", systemImage: "pencil") {
-                        showsSongEditor = true
+                        viewModel.showsSongEditor = true
                     }
                     Button("다른 곡과 묶기", systemImage: "arrow.triangle.merge") {
-                        showsSongMergeForm = true
+                        viewModel.showsSongMergeForm = true
                     }
                     Button("곡 삭제", systemImage: "trash", role: .destructive) {
-                        showsSongDeleteConfirmation = true
+                        viewModel.showsSongDeleteConfirmation = true
                     }
                 } label: {
                     Label("더 보기", systemImage: "ellipsis.circle")
@@ -53,121 +51,75 @@ struct SongDetailView: View {
         }
         .alert(
             "즐겨찾기를 저장하지 못했어요",
-            isPresented: favoriteErrorIsPresented
-        ) {
-            Button("확인", role: .cancel) {}
-        } message: {
-            Text(favoriteSaveErrorMessage ?? "잠시 후 다시 시도해 주세요.")
-        }
-        .alert(
-            "변경 사항을 저장하지 못했어요",
             isPresented: Binding(
-                get: { archiveEditErrorMessage != nil },
-                set: { if !$0 { archiveEditErrorMessage = nil } }
+                get: { viewModel.favoriteSaveErrorMessage != nil },
+                set: { if !$0 { viewModel.favoriteSaveErrorMessage = nil } }
             )
         ) {
             Button("확인", role: .cancel) {}
         } message: {
-            Text(archiveEditErrorMessage ?? "잠시 후 다시 시도해 주세요.")
+            Text(viewModel.favoriteSaveErrorMessage ?? "잠시 후 다시 시도해 주세요.")
+        }
+        .alert(
+            "변경 사항을 저장하지 못했어요",
+            isPresented: Binding(
+                get: { viewModel.archiveEditErrorMessage != nil },
+                set: { if !$0 { viewModel.archiveEditErrorMessage = nil } }
+            )
+        ) {
+            Button("확인", role: .cancel) {}
+        } message: {
+            Text(viewModel.archiveEditErrorMessage ?? "잠시 후 다시 시도해 주세요.")
         }
         .confirmationDialog(
             "이 악보를 곡에서 삭제할까요?",
             isPresented: Binding(
-                get: { sheetPendingDeletion != nil },
-                set: { if !$0 { sheetPendingDeletion = nil } }
+                get: { viewModel.sheetPendingDeletion != nil },
+                set: { if !$0 { viewModel.sheetPendingDeletion = nil } }
             ),
             titleVisibility: .visible,
-            presenting: sheetPendingDeletion
+            presenting: viewModel.sheetPendingDeletion
         ) { sheet in
-            Button("삭제", role: .destructive) { delete(sheet) }
+            Button("삭제", role: .destructive) {
+                viewModel.delete(sheet, in: modelContext)
+            }
             Button("취소", role: .cancel) {}
         } message: { sheet in
             Text("원본 PDF는 유지되고 \(sheet.startPageIndex + 1)~\(sheet.endPageIndex + 1)페이지 연결만 삭제됩니다.")
         }
         .confirmationDialog(
             "‘\(song.title)’을 삭제할까요?",
-            isPresented: $showsSongDeleteConfirmation,
+            isPresented: $viewModel.showsSongDeleteConfirmation,
             titleVisibility: .visible
         ) {
-            Button("곡 삭제", role: .destructive, action: deleteSong)
+            Button("곡 삭제", role: .destructive) {
+                if viewModel.delete(song, in: modelContext) {
+                    dismiss()
+                }
+            }
             Button("취소", role: .cancel) {}
         } message: {
             Text("곡에 연결된 악보가 함께 삭제됩니다. 원본 PDF는 유지됩니다.")
         }
-        .sheet(isPresented: $showsSongEditor) {
+        .sheet(isPresented: $viewModel.showsSongEditor) {
             NavigationStack {
                 SongEditForm(song: song)
             }
         }
-        .sheet(isPresented: $showsSongMergeForm) {
+        .sheet(isPresented: $viewModel.showsSongMergeForm) {
             NavigationStack {
                 SongMergeForm(sourceSong: song) {
                     dismiss()
                 }
             }
         }
-        .sheet(item: $sheetBeingEdited) { sheet in
+        .sheet(item: $viewModel.sheetBeingEdited) { sheet in
             NavigationStack {
                 SongSheetEditForm(sheet: sheet)
             }
         }
     }
 
-    private var sortedSheets: [SongSheet] {
-        (song.sheets ?? []).sorted { lhs, rhs in
-            let lhsName = lhs.document?.originalFileName ?? ""
-            let rhsName = rhs.document?.originalFileName ?? ""
-            if lhsName != rhsName {
-                return lhsName.localizedStandardCompare(rhsName) == .orderedAscending
-            }
-            if lhs.startPageIndex != rhs.startPageIndex {
-                return lhs.startPageIndex < rhs.startPageIndex
-            }
-            return lhs.id.uuidString < rhs.id.uuidString
-        }
-    }
-
-    private var favoriteErrorIsPresented: Binding<Bool> {
-        Binding(
-            get: { favoriteSaveErrorMessage != nil },
-            set: { isPresented in
-                if !isPresented {
-                    favoriteSaveErrorMessage = nil
-                }
-            }
-        )
-    }
-
-    private func toggleFavorite() {
-        let previousValue = song.isFavorite
-        song.isFavorite.toggle()
-
-        do {
-            try modelContext.save()
-        } catch {
-            song.isFavorite = previousValue
-            favoriteSaveErrorMessage = error.localizedDescription
-        }
-    }
-
-    private func delete(_ sheet: SongSheet) {
-        do {
-            try ArchiveLibraryEditing.deleteSheet(sheet, in: modelContext)
-            sheetPendingDeletion = nil
-        } catch {
-            sheetPendingDeletion = nil
-            archiveEditErrorMessage = error.localizedDescription
-        }
-    }
-
-    private func deleteSong() {
-        do {
-            try ArchiveLibraryEditing.deleteSong(song, in: modelContext)
-            dismiss()
-        } catch {
-            archiveEditErrorMessage = error.localizedDescription
-        }
-    }
 }
 
 private struct SongDetailContent: View {
@@ -256,14 +208,18 @@ private struct SongMergeForm: View {
 
     let sourceSong: Song
     let merged: () -> Void
-    @State private var targetSongID: UUID?
-    @State private var errorMessage: String?
+    @State private var viewModel: SongMergeViewModel
 
-    private var targetSongs: [Song] {
-        songs.filter { $0.id != sourceSong.id }
+    init(sourceSong: Song, merged: @escaping () -> Void) {
+        self.sourceSong = sourceSong
+        self.merged = merged
+        _viewModel = State(initialValue: SongMergeViewModel(sourceSong: sourceSong))
     }
 
     var body: some View {
+        @Bindable var viewModel = viewModel
+        let targetSongs = viewModel.targetSongs(from: songs)
+
         Form {
             Section("현재 곡") {
                 LabeledContent("병합할 곡", value: sourceSong.title)
@@ -275,7 +231,7 @@ private struct SongMergeForm: View {
                     Text("묶을 수 있는 다른 곡이 없습니다.")
                         .foregroundStyle(.secondary)
                 } else {
-                    Picker("기존 곡", selection: $targetSongID) {
+                    Picker("기존 곡", selection: $viewModel.targetSongID) {
                         Text("선택해 주세요").tag(nil as UUID?)
                         ForEach(targetSongs, id: \.id) { song in
                             Text(song.title).tag(song.id as UUID?)
@@ -296,37 +252,26 @@ private struct SongMergeForm: View {
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button("묶기", action: merge)
-                    .disabled(targetSongID == nil)
+                    .disabled(viewModel.targetSongID == nil)
             }
         }
         .alert(
             "곡을 묶지 못했어요",
             isPresented: Binding(
-                get: { errorMessage != nil },
-                set: { if !$0 { errorMessage = nil } }
+                get: { viewModel.errorMessage != nil },
+                set: { if !$0 { viewModel.errorMessage = nil } }
             )
         ) {
             Button("확인", role: .cancel) {}
         } message: {
-            Text(errorMessage ?? "잠시 후 다시 시도해 주세요.")
+            Text(viewModel.errorMessage ?? "잠시 후 다시 시도해 주세요.")
         }
     }
 
     private func merge() {
-        guard let targetSongID,
-              let target = targetSongs.first(where: { $0.id == targetSongID })
-        else { return }
-
-        do {
-            try ArchiveLibraryEditing.mergeSong(
-                sourceSong,
-                into: target,
-                in: modelContext
-            )
+        if viewModel.merge(into: songs, in: modelContext) {
             dismiss()
             merged()
-        } catch {
-            errorMessage = error.localizedDescription
         }
     }
 }
@@ -335,22 +280,19 @@ private struct SongEditForm: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
 
-    let song: Song
-    @State private var title: String
-    @State private var notes: String
-    @State private var errorMessage: String?
+    @State private var viewModel: SongEditViewModel
 
     init(song: Song) {
-        self.song = song
-        _title = State(initialValue: song.title)
-        _notes = State(initialValue: song.notes)
+        _viewModel = State(initialValue: SongEditViewModel(song: song))
     }
 
     var body: some View {
+        @Bindable var viewModel = viewModel
+
         Form {
             Section("곡 정보") {
-                TextField("곡 제목", text: $title)
-                TextField("메모", text: $notes, axis: .vertical)
+                TextField("곡 제목", text: $viewModel.title)
+                TextField("메모", text: $viewModel.notes, axis: .vertical)
                     .lineLimit(3...8)
             }
         }
@@ -367,27 +309,19 @@ private struct SongEditForm: View {
         .alert(
             "저장하지 못했어요",
             isPresented: Binding(
-                get: { errorMessage != nil },
-                set: { if !$0 { errorMessage = nil } }
+                get: { viewModel.errorMessage != nil },
+                set: { if !$0 { viewModel.errorMessage = nil } }
             )
         ) {
             Button("확인", role: .cancel) {}
         } message: {
-            Text(errorMessage ?? "잠시 후 다시 시도해 주세요.")
+            Text(viewModel.errorMessage ?? "잠시 후 다시 시도해 주세요.")
         }
     }
 
     private func save() {
-        do {
-            try ArchiveLibraryEditing.updateSong(
-                song,
-                title: title,
-                notes: notes,
-                in: modelContext
-            )
+        if viewModel.save(in: modelContext) {
             dismiss()
-        } catch {
-            errorMessage = error.localizedDescription
         }
     }
 }
@@ -396,23 +330,18 @@ private struct SongSheetEditForm: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
 
-    let sheet: SongSheet
-    @State private var musicalKey: MusicalKey?
-    @State private var startPageNumber: Int
-    @State private var endPageNumber: Int
-    @State private var errorMessage: String?
+    @State private var viewModel: SongSheetEditViewModel
 
     init(sheet: SongSheet) {
-        self.sheet = sheet
-        _musicalKey = State(initialValue: sheet.musicalKey)
-        _startPageNumber = State(initialValue: sheet.startPageIndex + 1)
-        _endPageNumber = State(initialValue: sheet.endPageIndex + 1)
+        _viewModel = State(initialValue: SongSheetEditViewModel(sheet: sheet))
     }
 
     var body: some View {
+        @Bindable var viewModel = viewModel
+
         Form {
             Section("악보 정보") {
-                Picker("키", selection: $musicalKey) {
+                Picker("키", selection: $viewModel.musicalKey) {
                     Text("미지정").tag(nil as MusicalKey?)
                     ForEach(MusicalKey.allCases) { key in
                         Text(key.displayName).tag(key as MusicalKey?)
@@ -420,14 +349,14 @@ private struct SongSheetEditForm: View {
                 }
 
                 Stepper(
-                    "시작 페이지 · \(startPageNumber)",
-                    value: $startPageNumber,
-                    in: 1...pageCount
+                    "시작 페이지 · \(viewModel.startPageNumber)",
+                    value: $viewModel.startPageNumber,
+                    in: 1...viewModel.pageCount
                 )
                 Stepper(
-                    "마지막 페이지 · \(endPageNumber)",
-                    value: $endPageNumber,
-                    in: 1...pageCount
+                    "마지막 페이지 · \(viewModel.endPageNumber)",
+                    value: $viewModel.endPageNumber,
+                    in: 1...viewModel.pageCount
                 )
             }
         }
@@ -444,32 +373,19 @@ private struct SongSheetEditForm: View {
         .alert(
             "저장하지 못했어요",
             isPresented: Binding(
-                get: { errorMessage != nil },
-                set: { if !$0 { errorMessage = nil } }
+                get: { viewModel.errorMessage != nil },
+                set: { if !$0 { viewModel.errorMessage = nil } }
             )
         ) {
             Button("확인", role: .cancel) {}
         } message: {
-            Text(errorMessage ?? "잠시 후 다시 시도해 주세요.")
+            Text(viewModel.errorMessage ?? "잠시 후 다시 시도해 주세요.")
         }
     }
 
-    private var pageCount: Int {
-        max(sheet.document?.pageCount ?? 1, 1)
-    }
-
     private func save() {
-        do {
-            try ArchiveLibraryEditing.updateSheet(
-                sheet,
-                musicalKey: musicalKey,
-                startPageNumber: startPageNumber,
-                endPageNumber: endPageNumber,
-                in: modelContext
-            )
+        if viewModel.save(in: modelContext) {
             dismiss()
-        } catch {
-            errorMessage = error.localizedDescription
         }
     }
 }
