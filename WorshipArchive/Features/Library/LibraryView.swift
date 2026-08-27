@@ -5,12 +5,7 @@ struct LibraryView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Song.title) private var songs: [Song]
     @Query(sort: \ArchiveDocument.importedAt, order: .reverse) private var documents: [ArchiveDocument]
-    @State private var mode: LibraryMode = .songs
-    @State private var selectedKey: MusicalKey?
-    @State private var showsFavoritesOnly = false
-    @State private var favoriteSaveErrorMessage: String?
-    @State private var documentPendingDeletion: ArchiveDocument?
-    @State private var documentDeleteErrorMessage: String?
+    @State private var viewModel = LibraryViewModel()
 
     let fileAccess: any PDFFileStoring
     let addPDF: () -> Void
@@ -24,8 +19,11 @@ struct LibraryView: View {
     }
 
     var body: some View {
+        @Bindable var viewModel = viewModel
+        let displayedSongs = viewModel.displayedSongs(from: songs)
+
         VStack(spacing: 16) {
-            Picker("라이브러리 보기", selection: $mode) {
+            Picker("라이브러리 보기", selection: $viewModel.mode) {
                 ForEach(LibraryMode.allCases) { mode in
                     Text(mode.title).tag(mode)
                 }
@@ -34,11 +32,11 @@ struct LibraryView: View {
             .frame(maxWidth: 420)
             .padding(.horizontal)
 
-            if mode == .songs, !songs.isEmpty {
+            if viewModel.mode == .songs, !songs.isEmpty {
                 HStack(spacing: 12) {
                     keyMenu
 
-                    Toggle(isOn: $showsFavoritesOnly) {
+                    Toggle(isOn: $viewModel.showsFavoritesOnly) {
                         Label("즐겨찾기만", systemImage: "heart.fill")
                     }
                     .toggleStyle(.button)
@@ -50,9 +48,9 @@ struct LibraryView: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
 
-                    if hasActiveSongFilter {
+                    if viewModel.hasActiveSongFilter {
                         Button("초기화", systemImage: "arrow.counterclockwise") {
-                            resetSongFilters()
+                            viewModel.resetSongFilters()
                         }
                         .font(.subheadline)
                     }
@@ -62,7 +60,7 @@ struct LibraryView: View {
             }
 
             ScrollView {
-                libraryContent
+                libraryContent(displayedSongs: displayedSongs)
                     .frame(maxWidth: 760)
                     .padding(.horizontal)
                     .padding(.bottom, 96)
@@ -81,33 +79,44 @@ struct LibraryView: View {
         }
         .alert(
             "즐겨찾기를 저장하지 못했어요",
-            isPresented: favoriteErrorIsPresented
-        ) {
-            Button("확인", role: .cancel) {}
-        } message: {
-            Text(favoriteSaveErrorMessage ?? "잠시 후 다시 시도해 주세요.")
-        }
-        .alert(
-            "원본 PDF를 삭제하지 못했어요",
             isPresented: Binding(
-                get: { documentDeleteErrorMessage != nil },
-                set: { if !$0 { documentDeleteErrorMessage = nil } }
+                get: { viewModel.favoriteSaveErrorMessage != nil },
+                set: { if !$0 { viewModel.favoriteSaveErrorMessage = nil } }
             )
         ) {
             Button("확인", role: .cancel) {}
         } message: {
-            Text(documentDeleteErrorMessage ?? "잠시 후 다시 시도해 주세요.")
+            Text(viewModel.favoriteSaveErrorMessage ?? "잠시 후 다시 시도해 주세요.")
+        }
+        .alert(
+            "원본 PDF를 삭제하지 못했어요",
+            isPresented: Binding(
+                get: { viewModel.documentDeleteErrorMessage != nil },
+                set: { if !$0 { viewModel.documentDeleteErrorMessage = nil } }
+            )
+        ) {
+            Button("확인", role: .cancel) {}
+        } message: {
+            Text(viewModel.documentDeleteErrorMessage ?? "잠시 후 다시 시도해 주세요.")
         }
         .confirmationDialog(
             "원본 PDF와 연결된 악보를 삭제할까요?",
             isPresented: Binding(
-                get: { documentPendingDeletion != nil },
-                set: { if !$0 { documentPendingDeletion = nil } }
+                get: { viewModel.documentPendingDeletion != nil },
+                set: { if !$0 { viewModel.documentPendingDeletion = nil } }
             ),
             titleVisibility: .visible,
-            presenting: documentPendingDeletion
+            presenting: viewModel.documentPendingDeletion
         ) { document in
-            Button("삭제", role: .destructive) { delete(document) }
+            Button("삭제", role: .destructive) {
+                Task {
+                    await viewModel.delete(
+                        document,
+                        in: modelContext,
+                        fileStore: fileAccess
+                    )
+                }
+            }
             Button("취소", role: .cancel) {}
         } message: { document in
             Text("‘\(document.originalFileName)’과 이 PDF에만 연결된 곡이 함께 삭제됩니다.")
@@ -115,8 +124,8 @@ struct LibraryView: View {
     }
 
     @ViewBuilder
-    private var libraryContent: some View {
-        switch mode {
+    private func libraryContent(displayedSongs: [Song]) -> some View {
+        switch viewModel.mode {
         case .songs:
             if songs.isEmpty {
                 emptyState
@@ -127,10 +136,10 @@ struct LibraryView: View {
                     ForEach(displayedSongs, id: \.id) { song in
                         SongLibraryRow(
                             title: song.title,
-                            subtitle: keySummary(for: song),
+                            subtitle: viewModel.keySummary(for: song),
                             isFavorite: song.isFavorite,
                             toggleFavorite: {
-                                toggleFavorite(for: song)
+                                viewModel.toggleFavorite(for: song, in: modelContext)
                             }
                         ) {
                             SongPDFDestinationView(
@@ -163,7 +172,7 @@ struct LibraryView: View {
                         .buttonStyle(.plain)
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button("삭제", systemImage: "trash", role: .destructive) {
-                                documentPendingDeletion = document
+                                viewModel.documentPendingDeletion = document
                             }
                         }
                     }
@@ -172,23 +181,10 @@ struct LibraryView: View {
         }
     }
 
-    private var displayedSongs: [Song] {
-        SongSearchMatcher.filter(
-            songs,
-            using: SongSearchFilter(
-                musicalKey: selectedKey,
-                favoritesOnly: showsFavoritesOnly
-            )
-        )
-    }
-
-    private var hasActiveSongFilter: Bool {
-        selectedKey != nil || showsFavoritesOnly
-    }
-
     private var keyMenu: some View {
         Menu {
-            Picker("키", selection: $selectedKey) {
+            @Bindable var viewModel = viewModel
+            Picker("키", selection: $viewModel.selectedKey) {
                 Text("모든 키")
                     .tag(nil as MusicalKey?)
 
@@ -199,114 +195,37 @@ struct LibraryView: View {
             }
         } label: {
             Label(
-                selectedKey?.displayName ?? "모든 키",
+                viewModel.selectedKey?.displayName ?? "모든 키",
                 systemImage: "music.quarternote.3"
             )
         }
         .buttonStyle(.bordered)
         .accessibilityLabel("키 필터")
-        .accessibilityValue(selectedKey?.displayName ?? "모든 키")
+        .accessibilityValue(viewModel.selectedKey?.displayName ?? "모든 키")
     }
 
     private var filteredSongsEmptyState: some View {
         ArchiveEmptyState(
-            systemImage: showsFavoritesOnly ? "heart" : "music.note",
+            systemImage: viewModel.showsFavoritesOnly ? "heart" : "music.note",
             title: "조건에 맞는 곡이 없어요",
-            message: filteredSongsEmptyMessage,
+            message: viewModel.filteredSongsEmptyMessage(),
             actionTitle: "필터 초기화",
             actionSystemImage: "arrow.counterclockwise",
-            action: resetSongFilters
-        )
-    }
-
-    private var filteredSongsEmptyMessage: String {
-        switch (selectedKey, showsFavoritesOnly) {
-        case (let key?, true):
-            return "즐겨찾기 중 \(key.displayName) 키로 등록된 곡이 없어요."
-        case (let key?, false):
-            return "\(key.displayName) 키로 등록된 곡이 없어요."
-        case (nil, true):
-            return "자주 보는 곡의 하트를 눌러 이곳에 모아 보세요."
-        case (nil, false):
-            return "다른 키를 선택해 보세요."
-        }
-    }
-
-    private func resetSongFilters() {
-        selectedKey = nil
-        showsFavoritesOnly = false
-    }
-
-    private var favoriteErrorIsPresented: Binding<Bool> {
-        Binding(
-            get: { favoriteSaveErrorMessage != nil },
-            set: { isPresented in
-                if !isPresented {
-                    favoriteSaveErrorMessage = nil
-                }
-            }
+            action: viewModel.resetSongFilters
         )
     }
 
     private var emptyState: some View {
         ArchiveEmptyState(
-            systemImage: mode.systemImage,
-            title: mode.emptyTitle,
-            message: mode.emptyMessage,
+            systemImage: viewModel.mode.systemImage,
+            title: viewModel.mode.emptyTitle,
+            message: viewModel.mode.emptyMessage,
             actionTitle: "PDF 추가",
             actionSystemImage: "plus",
             action: addPDF
         )
     }
 
-    private func keySummary(for song: Song) -> String {
-        let keyNames = Set(
-            song.sheets?.compactMap { $0.musicalKey?.displayName } ?? []
-        ).sorted()
-
-        switch keyNames.count {
-        case 0:
-            return "키 미지정"
-        case 1...2:
-            return keyNames.joined(separator: " · ")
-        default:
-            return "\(keyNames[0]) 외 \(keyNames.count - 1)개 키"
-        }
-    }
-
-    private func toggleFavorite(for song: Song) {
-        let previousValue = song.isFavorite
-        song.isFavorite.toggle()
-
-        do {
-            try modelContext.save()
-        } catch {
-            song.isFavorite = previousValue
-            favoriteSaveErrorMessage = error.localizedDescription
-        }
-    }
-
-    private func delete(_ document: ArchiveDocument) {
-        do {
-            let storedFileName = try ArchiveLibraryEditing.deleteDocument(
-                document,
-                in: modelContext
-            )
-            documentPendingDeletion = nil
-            Task {
-                do {
-                    try await fileAccess.removeStoredFile(named: storedFileName)
-                } catch PDFFileStoreError.storedFileMissing {
-                    // The requested final state is already satisfied.
-                } catch {
-                    documentDeleteErrorMessage = "목록에서는 삭제했지만 기기 파일 정리가 남았습니다. 앱이 다음 정리 작업에서 다시 처리합니다."
-                }
-            }
-        } catch {
-            documentPendingDeletion = nil
-            documentDeleteErrorMessage = error.localizedDescription
-        }
-    }
 }
 
 private struct LibraryItemRow: View {
@@ -345,41 +264,6 @@ private struct LibraryItemRow: View {
         .contentShape(.rect)
         .accessibilityElement(children: .combine)
         .accessibilityHint("원본 PDF를 엽니다")
-    }
-}
-
-private enum LibraryMode: String, CaseIterable, Identifiable {
-    case songs
-    case documents
-
-    var id: Self { self }
-
-    var title: String {
-        switch self {
-        case .songs: "곡별"
-        case .documents: "PDF별"
-        }
-    }
-
-    var systemImage: String {
-        switch self {
-        case .songs: "music.note.list"
-        case .documents: "doc.richtext"
-        }
-    }
-
-    var emptyTitle: String {
-        switch self {
-        case .songs: "등록된 곡이 없어요"
-        case .documents: "보관 중인 PDF가 없어요"
-        }
-    }
-
-    var emptyMessage: String {
-        switch self {
-        case .songs: "PDF 분석을 확인하면 곡별 악보가 여기에 모여요."
-        case .documents: "가져온 원본 PDF를 변경 없이 안전하게 보관해요."
-        }
     }
 }
 

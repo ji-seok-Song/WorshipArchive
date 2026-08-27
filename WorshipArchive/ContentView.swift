@@ -1,33 +1,10 @@
 import SwiftUI
 import SwiftData
-import UniformTypeIdentifiers
-
-private struct PDFImportRequest: Identifiable {
-    let id = UUID()
-    let sourceURL: URL?
-
-    static let manual = PDFImportRequest(sourceURL: nil)
-}
-
-private actor ArchiveFileMaintenanceGate {
-    static let shared = ArchiveFileMaintenanceGate()
-
-    private var hasStarted = false
-
-    func beginIfNeeded() -> Bool {
-        guard !hasStarted else { return false }
-        hasStarted = true
-        return true
-    }
-}
 
 struct ContentView: View {
     @Query(sort: \ArchiveDocument.importedAt) private var documents: [ArchiveDocument]
 
-    @State private var selection: AppDestination = .home
-    @State private var pdfImportRequest: PDFImportRequest?
-    @State private var incomingDocumentErrorMessage: String?
-    @State private var didPerformFileMaintenance = false
+    @State private var viewModel = AppViewModel()
 
     private let fileStore: any PDFFileStoring
     private let pdfAnalyzer: any PDFAnalyzing
@@ -47,15 +24,18 @@ struct ContentView: View {
     }
 
     var body: some View {
-        TabView(selection: $selection) {
+        @Bindable var viewModel = viewModel
+        let syncAssets = viewModel.syncAssets(from: documents)
+
+        TabView(selection: $viewModel.selection) {
             NavigationStack {
                 HomeView(
                     fileAccess: fileStore,
                     navigate: { destination in
-                        selection = destination
+                        viewModel.selection = destination
                     },
                     addPDF: {
-                        presentPDFPicker()
+                        viewModel.presentPDFPicker()
                     }
                 )
             }
@@ -66,7 +46,7 @@ struct ContentView: View {
 
             NavigationStack {
                 LibraryView(fileAccess: fileStore) {
-                    presentPDFPicker()
+                    viewModel.presentPDFPicker()
                 }
             }
             .tabItem {
@@ -76,7 +56,7 @@ struct ContentView: View {
             
             NavigationStack {
                 SearchView(fileAccess: fileStore) {
-                    presentPDFPicker()
+                    viewModel.presentPDFPicker()
                 }
             }
             .tabItem {
@@ -93,7 +73,7 @@ struct ContentView: View {
             .tag(AppDestination.settings)
         }
         .tabViewStyle(.sidebarAdaptable)
-        .sheet(item: $pdfImportRequest) { request in
+        .sheet(item: $viewModel.pdfImportRequest) { request in
             PDFImportView(
                 fileStore: fileStore,
                 pdfAnalyzer: pdfAnalyzer,
@@ -101,91 +81,35 @@ struct ContentView: View {
                 initialPDFURL: request.sourceURL
             )
         }
-        .onOpenURL(perform: handleIncomingDocument)
+        .onOpenURL(perform: viewModel.handleIncomingDocument)
         .alert(
             "PDF를 열 수 없어요",
             isPresented: Binding(
-                get: { incomingDocumentErrorMessage != nil },
+                get: { viewModel.incomingDocumentErrorMessage != nil },
                 set: { isPresented in
                     if !isPresented {
-                        incomingDocumentErrorMessage = nil
+                        viewModel.incomingDocumentErrorMessage = nil
                     }
                 }
             )
         ) {
             Button("확인", role: .cancel) {
-                incomingDocumentErrorMessage = nil
+                viewModel.incomingDocumentErrorMessage = nil
             }
         } message: {
-            Text(incomingDocumentErrorMessage ?? "PDF 파일인지 확인해 주세요.")
+            Text(viewModel.incomingDocumentErrorMessage ?? "PDF 파일인지 확인해 주세요.")
         }
         .task {
-            await performFileMaintenanceIfNeeded()
+            await viewModel.performFileMaintenanceIfNeeded(
+                documents: documents,
+                fileStore: fileStore,
+                usesCloudSync: syncCoordinator != nil,
+                isEnabled: performsFileMaintenance
+            )
         }
         .task(id: syncAssets) {
             await syncCoordinator?.reconcile(syncAssets)
         }
-    }
-
-    private func presentPDFPicker() {
-        pdfImportRequest = .manual
-    }
-
-    private func handleIncomingDocument(_ url: URL) {
-        let resourceType = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType
-        let isPDF = resourceType?.conforms(to: .pdf) == true
-            || url.pathExtension.lowercased() == "pdf"
-
-        guard url.isFileURL, isPDF else {
-            incomingDocumentErrorMessage = "찬양서랍에는 PDF 파일만 추가할 수 있어요."
-            return
-        }
-
-        guard pdfImportRequest == nil else {
-            incomingDocumentErrorMessage = "현재 PDF 확인을 마친 뒤 다시 공유해 주세요."
-            return
-        }
-
-        pdfImportRequest = PDFImportRequest(sourceURL: url)
-    }
-
-    private var syncAssets: [LocalPDFAsset] {
-        documents.compactMap { document in
-            guard
-                !document.storedFileName.isEmpty,
-                !document.checksum.isEmpty,
-                document.fileSize >= 0,
-                document.pageCount > 0
-            else {
-                return nil
-            }
-            return LocalPDFAsset(
-                documentID: document.id,
-                storedFileName: document.storedFileName,
-                checksum: document.checksum,
-                fileSize: document.fileSize,
-                pageCount: document.pageCount
-            )
-        }
-    }
-
-    private func performFileMaintenanceIfNeeded() async {
-        guard performsFileMaintenance, !didPerformFileMaintenance else { return }
-        didPerformFileMaintenance = true
-        guard await ArchiveFileMaintenanceGate.shared.beginIfNeeded() else { return }
-
-        let cutoffDate = Date().addingTimeInterval(-24 * 60 * 60)
-        try? await fileStore.removeStaleStagedFiles(olderThan: cutoffDate)
-
-        // CloudKit metadata may arrive after launch. Until that first import is
-        // complete, an apparently unreferenced PDF can still be valid cloud data.
-        guard syncCoordinator == nil else { return }
-
-        let referencedFileNames = Set(documents.map(\.storedFileName))
-        try? await fileStore.removeUnreferencedStoredFiles(
-            keeping: referencedFileNames,
-            olderThan: cutoffDate
-        )
     }
 }
 
