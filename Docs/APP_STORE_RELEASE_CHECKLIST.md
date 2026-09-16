@@ -27,7 +27,9 @@
 
 현재 로컬 아카이브는 개발 인증서로 서명되어 있다. Xcode Organizer에서 `Distribute App → App Store Connect`를 선택할 때 자동 서명이 Apple 배포 인증서와 배포 프로비저닝 프로파일로 다시 서명하는지 확인한 뒤 업로드한다.
 
-## App Store 표시 정보 초안
+## App Store 표시 정보
+
+복사해서 사용할 최종 입력본은 [`APP_STORE_METADATA.md`](APP_STORE_METADATA.md)에 정리되어 있다.
 
 ### 기본 정보
 
@@ -64,7 +66,7 @@ PDF를 추가하면 내장 텍스트와 기기 내 문자 인식을 이용해 �
 
 `찬양,악보,PDF,콘티,예배,CCM,교회,찬송,키,라이브러리`
 
-## App Review 메모 초안
+## App Review 메모
 
 앱 자체 로그인은 필요하지 않습니다. iCloud에 로그인하지 않아도 로컬 저장 기능을 사용할 수 있습니다.
 
@@ -85,8 +87,10 @@ PDF를 추가하면 내장 텍스트와 기기 내 문자 인식을 이용해 �
 - [ ] 기본 언어를 한국어로 선택
 - [ ] 카테고리와 연령 등급 설문 완료
 - [ ] 저작권 표기 입력
-- [ ] `Docs/SUPPORT.md`의 이메일과 개인정보처리방침 URL을 완성해 공개하고 지원 URL 입력
-- [ ] 개인정보처리방침의 운영자명과 이메일을 완성하고 공개 URL 입력
+- [x] 개인정보처리방침과 지원 문서에 운영자명·이메일 반영
+- [ ] GitHub Pages 배포 후 `https://ji-seok-song.github.io/WorshipArchive/privacy/` 공개 접속 확인
+- [ ] 지원 URL `https://ji-seok-song.github.io/WorshipArchive/support/` 입력
+- [ ] 개인정보처리방침 URL `https://ji-seok-song.github.io/WorshipArchive/privacy/` 입력
 - [ ] App Privacy에서 현재 코드 기준 `개발자가 수집하는 데이터 없음` 선택
 - [ ] 콘텐츠 권리 질문에는 사용자 제공 PDF를 다루는 점을 고려해 답변하고, 위 Review 메모를 함께 제공
 - [ ] 가격 및 배포 국가 선택
