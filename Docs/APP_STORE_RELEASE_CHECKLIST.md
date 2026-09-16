@@ -1,6 +1,6 @@
 # 찬양서랍 1.0 App Store 배포 체크리스트
 
-기준일: 2026년 8월 27일
+기준일: 2026년 9월 16일
 
 ## 현재 기술 설정
 
@@ -17,15 +17,21 @@
 
 최소 OS가 26.0이므로 그보다 이전 OS 사용자는 앱을 설치할 수 없다. 첫 출시 범위를 넓히려면 별도의 하위 OS 호환 작업이 필요하다.
 
-## 2026년 8월 27일 로컬 검증 결과
+## 2026년 9월 16일 최종 로컬 검증 결과
 
-- 개인정보 매니페스트와 Info.plist 형식 검사 통과
-- iOS 26.5 SDK Release 빌드 성공
-- iPhone 17 시뮬레이터 전체 자동 테스트 103개 통과
-- iPhone·iPad용 서명된 `1.0 (1)` 아카이브 생성 성공
-- 아카이브 안에 앱 아이콘, 개인정보 매니페스트, CloudKit 권한, 버전 정보가 포함된 것을 확인
+- 개인정보 매니페스트, Info.plist, Entitlements, 프로젝트 파일 형식 검사 통과
+- iOS 26.0 시뮬레이터 전체 자동 테스트 `103/103` 통과
+- iOS 26.5 시뮬레이터 전체 자동 테스트 `103/103` 통과
+- iPhone·iPad용 Release `1.0 (52)` 아카이브 생성 성공
+- App Store Connect 배포 방식으로 서명된 IPA 내보내기 성공
+- 배포 프로파일 `iOS Team Store Provisioning Profile: com.jacky.WorshipArchive` 적용 확인
+- `aps-environment=production`, CloudKit `Production`, `get-task-allow=false` 확인
+- 앱 아이콘, 개인정보 매니페스트, 버전, 최소 OS 26.0, iPhone·iPad 지원 정보 포함 확인
+- 내보낸 앱 번들의 코드 서명 무결성 검사 통과
 
-현재 로컬 아카이브는 개발 인증서로 서명되어 있다. Xcode Organizer에서 `Distribute App → App Store Connect`를 선택할 때 자동 서명이 Apple 배포 인증서와 배포 프로비저닝 프로파일로 다시 서명하는지 확인한 뒤 업로드한다.
+로컬 빌드·테스트·Archive·App Store용 내보내기 검사는 완료했다. App Store Connect 서버 업로드 검증과 심사 제출은 계정 로그인이 필요한 단계이므로 사용자가 Xcode Organizer 또는 App Store Connect에서 최종 확인 후 진행한다.
+
+재현 가능한 내보내기 설정은 `Configuration/AppStoreExportOptions.plist`에 저장되어 있으며 CloudKit Production 환경, 자동 서명, dSYM 업로드를 사용한다.
 
 ## App Store 표시 정보
 

@@ -132,7 +132,7 @@ Docs/                       # 구현 계획과 출시 문서
 ## 개발 환경
 
 - Xcode 26.5 이상
-- iOS/iPadOS 26.5 이상
+- iOS/iPadOS 26.0 이상
 - Swift 5
 - CloudKit 기능을 실행하려면 Apple Developer Team과 iCloud 컨테이너가 필요합니다.
 
@@ -148,7 +148,7 @@ Docs/                       # 구현 계획과 출시 문서
 2. `WorshipArchive.xcodeproj`를 Xcode에서 엽니다.
 3. `WorshipArchive` 타깃의 **Signing & Capabilities**에서 사용할 Team을 선택합니다.
 4. 저장소 소유자는 등록된 App ID와 `iCloud.com.jacky.WorshipArchive` 컨테이너 연결을 확인합니다.
-5. iOS 26.5 이상의 iPhone 또는 iPad 시뮬레이터/기기를 선택하고 실행합니다.
+5. iOS 26.0 이상의 iPhone 또는 iPad 시뮬레이터/기기를 선택하고 실행합니다.
 
 ### 다른 Developer Team에서 포크해 실행하는 경우
 
