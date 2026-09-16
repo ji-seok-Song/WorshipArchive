@@ -26,9 +26,9 @@
 ## UI 미리보기
 
 <p align="center">
-  <img src="Docs/Images/readme-home.png" width="30%" alt="찬양서랍 홈 화면">
-  <img src="Docs/Images/readme-library.png" width="30%" alt="찬양서랍 라이브러리 화면">
-  <img src="Docs/Images/readme-search.png" width="30%" alt="찬양서랍 검색 화면">
+  <img src="docs/Images/readme-home.png" width="30%" alt="찬양서랍 홈 화면">
+  <img src="docs/Images/readme-library.png" width="30%" alt="찬양서랍 라이브러리 화면">
+  <img src="docs/Images/readme-search.png" width="30%" alt="찬양서랍 검색 화면">
 </p>
 
 <p align="center">
@@ -126,7 +126,7 @@ WorshipArchive/
 └── Services/               # 기능 경계 프로토콜
 
 WorshipArchiveTests/        # 분석·검색·저장·동기화·뷰어 테스트
-Docs/                       # 구현 계획과 출시 문서
+docs/                       # 구현 계획과 출시 문서 및 GitHub Pages
 ```
 
 ## 개발 환경
@@ -195,10 +195,10 @@ xcodebuild \
 
 ## 문서
 
-- [구현 계획](Docs/IMPLEMENTATION_PLAN.md)
-- [App Store 배포 체크리스트](Docs/APP_STORE_RELEASE_CHECKLIST.md)
-- [개인정보처리방침](Docs/PRIVACY_POLICY.md)
-- [사용자 지원](Docs/SUPPORT.md)
+- [구현 계획](docs/IMPLEMENTATION_PLAN.md)
+- [App Store 배포 체크리스트](docs/APP_STORE_RELEASE_CHECKLIST.md)
+- [개인정보처리방침](docs/PRIVACY_POLICY.md)
+- [사용자 지원](docs/SUPPORT.md)
 - [공개 지원 페이지](https://ji-seok-song.github.io/WorshipArchive/)
 
 ## 라이선스
