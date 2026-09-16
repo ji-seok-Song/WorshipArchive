@@ -28,6 +28,7 @@
 - `aps-environment=production`, CloudKit `Production`, `get-task-allow=false` 확인
 - 앱 아이콘, 개인정보 매니페스트, 버전, 최소 OS 26.0, iPhone·iPad 지원 정보 포함 확인
 - 내보낸 앱 번들의 코드 서명 무결성 검사 통과
+- GitHub Pages를 `main /docs`에서 배포하고 홈·개인정보처리방침·지원 URL의 공개 응답 확인
 
 로컬 빌드·테스트·Archive·App Store용 내보내기 검사는 완료했다. App Store Connect 서버 업로드 검증과 심사 제출은 계정 로그인이 필요한 단계이므로 사용자가 Xcode Organizer 또는 App Store Connect에서 최종 확인 후 진행한다.
 
@@ -94,7 +95,7 @@ PDF를 추가하면 내장 텍스트와 기기 내 문자 인식을 이용해 �
 - [ ] 카테고리와 연령 등급 설문 완료
 - [ ] 저작권 표기 입력
 - [x] 개인정보처리방침과 지원 문서에 운영자명·이메일 반영
-- [ ] GitHub Pages 배포 후 `https://ji-seok-song.github.io/WorshipArchive/privacy/` 공개 접속 확인
+- [x] GitHub Pages 배포 후 `https://ji-seok-song.github.io/WorshipArchive/privacy/` 공개 접속 확인
 - [ ] 지원 URL `https://ji-seok-song.github.io/WorshipArchive/support/` 입력
 - [ ] 개인정보처리방침 URL `https://ji-seok-song.github.io/WorshipArchive/privacy/` 입력
 - [ ] App Privacy에서 현재 코드 기준 `개발자가 수집하는 데이터 없음` 선택
