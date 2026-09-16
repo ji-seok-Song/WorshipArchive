@@ -29,6 +29,7 @@
 - 앱 아이콘, 개인정보 매니페스트, 버전, 최소 OS 26.0, iPhone·iPad 지원 정보 포함 확인
 - 내보낸 앱 번들의 코드 서명 무결성 검사 통과
 - GitHub Pages를 `main /docs`에서 배포하고 홈·개인정보처리방침·지원 URL의 공개 응답 확인
+- iPhone 6.9인치와 iPad 13인치 규격의 알파 없는 제출용 JPEG 스크린샷 준비
 
 로컬 빌드·테스트·Archive·App Store용 내보내기 검사는 완료했다. App Store Connect 서버 업로드 검증과 심사 제출은 계정 로그인이 필요한 단계이므로 사용자가 Xcode Organizer 또는 App Store Connect에서 최종 확인 후 진행한다.
 
@@ -121,6 +122,8 @@ App Store 빌드는 CloudKit의 Production 환경만 사용한다. 업로드 전
 ## 스크린샷 준비
 
 iPhone과 iPad를 모두 지원하므로 두 기기군의 스크린샷이 필요하다.
+
+최소 제출본은 [`AppStoreScreenshots`](AppStoreScreenshots/)에 준비되어 있다.
 
 추천 장면:
 
