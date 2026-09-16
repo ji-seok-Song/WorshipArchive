@@ -8,14 +8,14 @@
 - Bundle ID: `com.jacky.WorshipArchive`
 - iCloud 컨테이너: `iCloud.com.jacky.WorshipArchive`
 - 버전: `1.0`
-- 빌드: `1`
+- 빌드: `52`
 - 지원 기기: iPhone, iPad
-- 최소 OS: iOS/iPadOS 26.5
+- 최소 OS: iOS/iPadOS 26.0
 - 추적, 광고, 제3자 분석 SDK: 없음
 - 비면제 암호화: 사용 안 함. 운영체제가 제공하는 CloudKit 통신만 사용
 - 개인정보 매니페스트: 파일 시각 API `C617.1`, 추적 및 개발자 수집 없음
 
-최소 OS가 26.5이므로 그보다 이전 OS 사용자는 앱을 설치할 수 없다. 첫 출시 범위를 넓히려면 별도의 하위 OS 호환 작업이 필요하다.
+최소 OS가 26.0이므로 그보다 이전 OS 사용자는 앱을 설치할 수 없다. 첫 출시 범위를 넓히려면 별도의 하위 OS 호환 작업이 필요하다.
 
 ## 2026년 8월 27일 로컬 검증 결과
 
