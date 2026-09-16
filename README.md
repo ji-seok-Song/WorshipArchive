@@ -191,7 +191,7 @@ xcodebuild \
 - 실제 악보 PDF와 개인 자료는 저장소에 포함하지 않습니다.
 - 사용자는 가져오거나 공유하는 악보에 필요한 권리를 보유해야 합니다.
 
-자세한 내용은 [개인정보처리방침](Docs/PRIVACY_POLICY.md)을 참고하세요.
+자세한 내용은 [개인정보처리방침](https://ji-seok-song.github.io/WorshipArchive/privacy/)을 참고하세요.
 
 ## 문서
 
@@ -199,6 +199,7 @@ xcodebuild \
 - [App Store 배포 체크리스트](Docs/APP_STORE_RELEASE_CHECKLIST.md)
 - [개인정보처리방침](Docs/PRIVACY_POLICY.md)
 - [사용자 지원](Docs/SUPPORT.md)
+- [공개 지원 페이지](https://ji-seok-song.github.io/WorshipArchive/)
 
 ## 라이선스
 

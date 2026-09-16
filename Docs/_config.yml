@@ -1,0 +1,10 @@
+title: 찬양서랍
+description: 찬양 악보 PDF를 곡별로 정리하고 다시 찾는 iPhone·iPad 앱
+lang: ko-KR
+url: "https://ji-seok-song.github.io"
+baseurl: "/WorshipArchive"
+repository: ji-seok-Song/WorshipArchive
+exclude:
+  - APP_STORE_RELEASE_CHECKLIST.md
+  - IMPLEMENTATION_PLAN.md
+  - APP_STORE_METADATA.md
