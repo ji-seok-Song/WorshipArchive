@@ -267,10 +267,10 @@ struct PDFKitTwoPageScoreView: UIViewRepresentable {
         context.coordinator.update(parent: self, containerView: containerView)
     }
 
-    @MainActor
-    final class Coordinator {
+    nonisolated final class Coordinator {
         private var appliedIdentity: PDFKitTwoPageApplicationIdentity?
 
+        @MainActor
         func update(
             parent: PDFKitTwoPageScoreView,
             containerView: PDFKitTwoPageContainerView
@@ -305,6 +305,7 @@ struct PDFKitTwoPageScoreView: UIViewRepresentable {
             }
         }
 
+        @MainActor
         private func apply(
             document: PDFDocument,
             pageIndex: Int,

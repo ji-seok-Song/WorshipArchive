@@ -10,8 +10,7 @@ nonisolated struct SongSearchableText: Equatable, Sendable {
     }
 }
 
-@MainActor
-final class SongSearchTextCache {
+nonisolated final class SongSearchTextCache {
     nonisolated static let defaultMaximumEntryCount = 512
 
     private struct SourceSnapshot: Equatable {
@@ -38,14 +37,17 @@ final class SongSearchTextCache {
         insertionOrder.reserveCapacity(self.maximumEntryCount)
     }
 
+    @MainActor
     var cachedEntryCount: Int {
         entries.count
     }
 
+    @MainActor
     func contains(songID: UUID) -> Bool {
         entries[songID] != nil
     }
 
+    @MainActor
     func searchableText(for song: Song) -> SongSearchableText {
         let source = SourceSnapshot(
             normalizedTitle: song.normalizedTitle,
@@ -69,6 +71,7 @@ final class SongSearchTextCache {
         return searchableText
     }
 
+    @MainActor
     private func store(_ entry: Entry, for songID: UUID) {
         if entries.updateValue(entry, forKey: songID) != nil {
             return

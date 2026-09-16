@@ -304,26 +304,28 @@ struct PDFViewerView: View {
     }
 }
 
-@MainActor
-final class PDFViewerIdleTimerCoordinator {
+nonisolated final class PDFViewerIdleTimerCoordinator {
+    @MainActor
     static let shared = PDFViewerIdleTimerCoordinator(
         readValue: { UIApplication.shared.isIdleTimerDisabled },
         writeValue: { UIApplication.shared.isIdleTimerDisabled = $0 }
     )
 
-    private let readValue: () -> Bool
-    private let writeValue: (Bool) -> Void
+    private let readValue: @MainActor () -> Bool
+    private let writeValue: @MainActor (Bool) -> Void
     private var activeLeases: Set<UUID> = []
     private var valueBeforeFirstLease: Bool?
 
+    @MainActor
     init(
-        readValue: @escaping () -> Bool,
-        writeValue: @escaping (Bool) -> Void
+        readValue: @escaping @MainActor () -> Bool,
+        writeValue: @escaping @MainActor (Bool) -> Void
     ) {
         self.readValue = readValue
         self.writeValue = writeValue
     }
 
+    @MainActor
     func acquire() -> UUID {
         let lease = UUID()
         if activeLeases.isEmpty {
@@ -334,6 +336,7 @@ final class PDFViewerIdleTimerCoordinator {
         return lease
     }
 
+    @MainActor
     func release(_ lease: UUID) {
         guard activeLeases.remove(lease) != nil else { return }
         guard activeLeases.isEmpty, let valueBeforeFirstLease else { return }
